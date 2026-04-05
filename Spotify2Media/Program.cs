@@ -20,52 +20,56 @@ class Program
         }
 
         Application.Init();
-        Application.QuitKey = Key.C | Key.CtrlMask;
-
+        Application.QuitKey = Key.C.WithCtrl;
+        
         // Set dark color scheme
-        Colors.Base = new ColorScheme()
+        var baseScheme = new ColorScheme()
         {
-            Normal = Terminal.Gui.Attribute.Make(Color.Gray, Color.Black),
-            Focus = Terminal.Gui.Attribute.Make(Color.White, Color.DarkGray),
-            HotNormal = Terminal.Gui.Attribute.Make(Color.BrightCyan, Color.Black),
-            HotFocus = Terminal.Gui.Attribute.Make(Color.BrightCyan, Color.DarkGray),
-            Disabled = Terminal.Gui.Attribute.Make(Color.DarkGray, Color.Black)
+            Normal = new Terminal.Gui.Attribute(Color.Gray, Color.Black),
+            Focus = new Terminal.Gui.Attribute(Color.White, Color.DarkGray),
+            HotNormal = new Terminal.Gui.Attribute(Color.BrightCyan, Color.Black),
+            HotFocus = new Terminal.Gui.Attribute(Color.BrightCyan, Color.DarkGray),
+            Disabled = new Terminal.Gui.Attribute(Color.DarkGray, Color.Black)
         };
 
-        Colors.Dialog = new ColorScheme()
+        var dialogScheme = new ColorScheme()
         {
-            Normal = Terminal.Gui.Attribute.Make(Color.White, Color.DarkGray),
-            Focus = Terminal.Gui.Attribute.Make(Color.Black, Color.Gray),
-            HotNormal = Terminal.Gui.Attribute.Make(Color.BrightCyan, Color.DarkGray),
-            HotFocus = Terminal.Gui.Attribute.Make(Color.BrightCyan, Color.Gray),
-            Disabled = Terminal.Gui.Attribute.Make(Color.DarkGray, Color.DarkGray)
+            Normal = new Terminal.Gui.Attribute(Color.White, Color.DarkGray),
+            Focus = new Terminal.Gui.Attribute(Color.Black, Color.Gray),
+            HotNormal = new Terminal.Gui.Attribute(Color.BrightCyan, Color.DarkGray),
+            HotFocus = new Terminal.Gui.Attribute(Color.BrightCyan, Color.Gray),
+            Disabled = new Terminal.Gui.Attribute(Color.DarkGray, Color.DarkGray)
         };
 
-        Colors.Error = new ColorScheme()
+        var errorScheme = new ColorScheme()
         {
-            Normal = Terminal.Gui.Attribute.Make(Color.BrightRed, Color.Black),
-            Focus = Terminal.Gui.Attribute.Make(Color.White, Color.BrightRed),
-            HotNormal = Terminal.Gui.Attribute.Make(Color.BrightYellow, Color.Black),
-            HotFocus = Terminal.Gui.Attribute.Make(Color.BrightYellow, Color.BrightRed),
-            Disabled = Terminal.Gui.Attribute.Make(Color.DarkGray, Color.Black)
+            Normal = new Terminal.Gui.Attribute(Color.BrightRed, Color.Black),
+            Focus = new Terminal.Gui.Attribute(Color.White, Color.BrightRed),
+            HotNormal = new Terminal.Gui.Attribute(Color.BrightYellow, Color.Black),
+            HotFocus = new Terminal.Gui.Attribute(Color.BrightYellow, Color.BrightRed),
+            Disabled = new Terminal.Gui.Attribute(Color.DarkGray, Color.Black)
         };
 
-        Application.Top.ColorScheme = Colors.Base;
+        Colors.ColorSchemes["Base"] = baseScheme;
+        Colors.ColorSchemes["Dialog"] = dialogScheme;
+        Colors.ColorSchemes["Error"] = errorScheme;
 
         Console.CancelKeyPress += (sender, e) =>
         {
             e.Cancel = true;
-            Application.MainLoop.Invoke(() =>
+            Application.Invoke(() =>
             {
                 Application.Shutdown();
                 Environment.Exit(0);
             });
         };
 
-        Application.Top.Add(new MainWindow(defaultFolder));
+        var mainWindow = new MainWindow(defaultFolder);
+        mainWindow.ColorScheme = baseScheme;
+
         try
         {
-            Application.Run();
+            Application.Run(mainWindow);
         }
         finally
         {
