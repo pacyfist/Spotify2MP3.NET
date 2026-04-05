@@ -5,161 +5,380 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using Spotify2Media.Models;
 
 namespace Spotify2Media.Core;
 
-public class Downloader
+public partial class Downloader(
+    Config config,
+    string outputDir,
+    bool deepSearch,
+    Action<string> statusCallback,
+    Action<int> progressCallback,
+    Action<string, bool> logCallback
+)
 {
-    private readonly Config _config;
-    private readonly string _outputDir;
-    private readonly Action<string> _statusCallback;
-    private readonly Action<int> _progressCallback;
-    private readonly bool _deepSearch;
+    [GeneratedRegex(@"[^\w\s]")]
+    private static partial Regex AlphanumericOnlyRegex();
 
-    private readonly Action<string, bool> _logCallback;
+    [GeneratedRegex(@"[,/&]| feat\.| ft\.", RegexOptions.IgnoreCase)]
+    private static partial Regex ArtistSeparatorRegex();
 
-    public Downloader(Config config, string outputDir, bool deepSearch, Action<string> statusCallback, Action<int> progressCallback, Action<string, bool> logCallback)
-    {
-        _config = config;
-        _outputDir = outputDir;
-        _deepSearch = deepSearch;
-        _statusCallback = statusCallback;
-        _progressCallback = progressCallback;
-        _logCallback = logCallback;
-    }
+    private record TrackInfo(
+        string SafeTitle,
+        string SafeArtist,
+        string ArtistPrimary,
+        int? SpotifySec,
+        List<string> Variants
+    );
 
-    public async Task<List<Track>> DownloadPlaylistAsync(List<Track> tracks)
+    private record VariantInfo(
+        string BaseName,
+        string M4aPath,
+        string Mp3Path,
+        string Query,
+        string SafeTitle,
+        string SafeArtist,
+        string ArtistPrimary,
+        string Variant,
+        int? SpotifySec
+    );
+
+    public async Task<List<Track>> DownloadPlaylistAsync(
+        List<Track> tracks,
+        CancellationToken ct = default
+    )
     {
         var notFound = new List<Track>();
         int total = tracks.Count;
         int i = 1;
 
-        Directory.CreateDirectory(_outputDir);
-        var archiveFile = Path.Combine(_outputDir, "downloaded.txt");
+        Directory.CreateDirectory(outputDir);
 
         foreach (var track in tracks)
         {
+            ct.ThrowIfCancellationRequested();
             track.TrackNumber = i;
-            var safeTitle = Regex.Replace(track.TrackName ?? "", @"[^\w\s]", "");
-            var artistRaw = track.ArtistNames ?? "";
-            var artistPrimary = Regex.Split(artistRaw, @"[,/&]| feat\.| ft\.", RegexOptions.IgnoreCase)[0].Trim();
-            var safeArtist = Regex.Replace(artistPrimary, @"[^\w\s]", "");
+            bool success = false;
 
-            int.TryParse(track.DurationMs, out int spotifyMs);
-            int? spotifySec = spotifyMs > 0 ? spotifyMs / 1000 : null;
+            // Step 1: Calculate names
+            var trackInfo = CalculateNames(track);
 
-            var variants = _config.Variants.ToList();
-            if (variants.Count == 0) variants.Add("");
-            if ((track.TrackName ?? "").ToLower().Contains("instrumental"))
+            foreach (var variant in trackInfo.Variants)
             {
-                variants.Insert(0, "instrumental");
-            }
+                ct.ThrowIfCancellationRequested();
+                var variantInfo = GetVariantInfo(trackInfo, variant);
 
-            bool found = false;
+                // Step 2: Check if files exist
+                logCallback($"Processing: {variantInfo.BaseName}", false);
+                bool m4aExists = IsM4aPresent(variantInfo);
 
-            foreach (var variant in variants)
-            {
-                var parts = new List<string> { safeTitle };
-                if (!string.IsNullOrWhiteSpace(safeArtist) && safeArtist.ToLower() != "unknown") parts.Add(safeArtist);
-                if (!string.IsNullOrWhiteSpace(variant)) parts.Add(variant);
-
-                var query = string.Join(" ", parts);
-                _statusCallback($"[{i}/{total}] Searching: {query}");
-
-                string downloadSpec = $"ytsearch1:{query}";
-
-                if (_deepSearch)
+                if (m4aExists)
                 {
-                    downloadSpec = await PerformDeepSearchAsync(query, safeTitle, safeArtist, variant, spotifySec);
-                }
-
-                var baseName = $"{i:D3} - {Regex.Replace(track.TrackName ?? "", @"[^\w\s]", "").Trim()}{(string.IsNullOrEmpty(variant) ? "" : $" - {variant}")}";
-                var tmpl = baseName + ".%(ext)s";
-                
-                var args = new List<string>
-                {
-                    "--no-config",
-                    "--download-archive", archiveFile,
-                    "-f", "bestaudio[ext=m4a]/bestaudio",
-                    "--output", Path.Combine(_outputDir, tmpl),
-                    "--no-playlist",
-                    "--embed-thumbnail",
-                    "--add-metadata"
-                };
-
-                if (_config.TranscodeMp3)
-                {
-                    args.AddRange(new[] { "--extract-audio", "--audio-format", "mp3", "--audio-quality", "0" });
+                    logCallback("[OK] m4a already exists.", false);
+                    success = true;
                 }
                 else
                 {
-                    args.AddRange(new[] { "--remux-video", "m4a" });
-                }
+                    // Step 3: Search for the track
+                    statusCallback($"[{i}/{total}] Processing: {variantInfo.Query}");
+                    logCallback($"Searching for: {variantInfo.Query}", false);
 
-                if (_config.ExcludeInstrumentals)
-                {
-                    args.AddRange(new[] { "--reject-title", "instrumental" });
-                }
+                    string downloadSpec = $"ytsearch1:{variantInfo.Query}";
 
-                args.Add(downloadSpec);
-
-                var (exitCode, stdout, stderr) = await RunCommandAsync("yt-dlp", args);
-
-                if (exitCode == 0 || stdout.Contains("has already been recorded in the archive"))
-                {
-                    var outExt = _config.TranscodeMp3 ? ".mp3" : ".m4a";
-                    var candidatePath = Path.Combine(_outputDir, baseName + outExt);
-                    
-                    if (File.Exists(candidatePath))
+                    if (deepSearch)
                     {
-                        var metadata = new MetadataEmbedder();
-                        metadata.EmbedTags(candidatePath, track.TrackName ?? "Unknown", artistPrimary, track.AlbumName ?? "Unknown", (uint)i, outExt == ".mp3");
-                        found = true;
-                        _logCallback($"Downloaded: {baseName}", false);
-                        break;
+                        logCallback("Performing deep search...", false);
+                        downloadSpec = await PerformDeepSearchAsync(
+                                variantInfo.Query,
+                                variantInfo.SafeTitle,
+                                variantInfo.SafeArtist,
+                                variantInfo.Variant,
+                                variantInfo.SpotifySec,
+                                ct
+                            )
+                            .ConfigureAwait(false);
+                        logCallback($"Deep search result: {downloadSpec}", false);
+                    }
+
+                    // Step 4: Download the track (if m4a is missing)
+                    bool downloaded = await DownloadTrackAsync(variantInfo, downloadSpec, ct)
+                        .ConfigureAwait(false);
+
+                    if (downloaded)
+                    {
+                        logCallback("[OK] m4a download successful.", false);
+                        success = true;
                     }
                     else
                     {
-                        _logCallback($"File not found after download: {candidatePath}", true);
+                        logCallback("[Error] m4a download failed", true);
+                        success = false;
+                        break;
                     }
                 }
-                else
+
+                if (config.TranscodeMp3)
                 {
-                    _logCallback($"Download failed for {query}: {stderr}", true);
+                    bool mp3Exists = IsMp3Present(variantInfo);
+
+                    if (mp3Exists)
+                    {
+                        logCallback("[OK] mp3 already exists.", false);
+                        success = true;
+                    }
+                    else
+                    {
+                        // Step 5: Convert the track
+                        bool converted = await ConvertTrackAsync(variantInfo, track, ct)
+                            .ConfigureAwait(false);
+
+                        if (converted)
+                        {
+                            logCallback("[OK] mp3 conversion successful.", false);
+                            success = true;
+                        }
+                        else
+                        {
+                            logCallback("[Error] mp3 conversion failed", true);
+                            success = false;
+                            break;
+                        }
+                    }
                 }
             }
 
-            if (!found)
+            if (!success)
             {
                 notFound.Add(track);
-                _logCallback($"Failed to find or download: {track.TrackName}", true);
+                logCallback($"Failed to find or download: {track.TrackName}", true);
             }
 
-            _progressCallback((int)((double)i / total * 100));
+            progressCallback((int)((double)i / total * 100));
             i++;
         }
 
-        if (_config.GenerateM3u)
+        if (config.GenerateM3u)
         {
-            var m3uPath = Path.Combine(_outputDir, "playlist.m3u");
-            var audioFiles = Directory.GetFiles(_outputDir).Where(f => f.EndsWith(".mp3") || f.EndsWith(".m4a")).OrderBy(File.GetCreationTime).ToList();
-            using var sw = new StreamWriter(m3uPath);
-            sw.WriteLine("#EXTM3U");
-            foreach (var file in audioFiles)
-            {
-                sw.WriteLine($"#EXTINF:-1,{Path.GetFileNameWithoutExtension(file)}");
-                sw.WriteLine(Path.GetFileName(file));
-            }
+            GenerateM3uPlaylist();
         }
 
         return notFound;
     }
 
-    private async Task<string> PerformDeepSearchAsync(string query, string safeTitle, string safeArtist, string variant, int? spotifySec)
+    private TrackInfo CalculateNames(Track track)
     {
-        var (code1, stdout1, _) = await RunCommandAsync("yt-dlp", new[] { "--dump-single-json", "--no-playlist", $"ytsearch1:{query}" });
+        var safeTitle = AlphanumericOnlyRegex().Replace(track.TrackName ?? "", "").Trim();
+        var artistRaw = track.ArtistNames ?? "";
+        var artistPrimary = ArtistSeparatorRegex().Split(artistRaw)[0].Trim();
+        var safeArtist = AlphanumericOnlyRegex().Replace(artistPrimary, "").Trim();
+
+        int.TryParse(track.DurationMs, out int spotifyMs);
+        int? spotifySec = spotifyMs > 0 ? spotifyMs / 1000 : null;
+
+        var variants = config.Variants.ToList();
+        if (variants.Count == 0)
+            variants.Add("");
+        if ((track.TrackName ?? "").ToLower().Contains("instrumental"))
+        {
+            variants.Insert(0, "instrumental");
+        }
+
+        return new TrackInfo(safeTitle, safeArtist, artistPrimary, spotifySec, variants);
+    }
+
+    private VariantInfo GetVariantInfo(TrackInfo trackInfo, string variant)
+    {
+        var variantSuffix = string.IsNullOrEmpty(variant) ? "" : $" - {variant}";
+        var baseName = $"{trackInfo.SafeArtist} - {trackInfo.SafeTitle}{variantSuffix}";
+        var m4aPath = Path.Combine(outputDir, baseName + ".m4a");
+        var mp3Path = Path.Combine(outputDir, baseName + ".mp3");
+
+        var parts = new List<string> { trackInfo.SafeTitle };
+        if (
+            !string.IsNullOrWhiteSpace(trackInfo.SafeArtist)
+            && trackInfo.SafeArtist.ToLower() != "unknown"
+        )
+            parts.Add(trackInfo.SafeArtist);
+        if (!string.IsNullOrWhiteSpace(variant))
+            parts.Add(variant);
+
+        var query = string.Join(" ", parts);
+
+        return new VariantInfo(
+            baseName,
+            m4aPath,
+            mp3Path,
+            query,
+            trackInfo.SafeTitle,
+            trackInfo.SafeArtist,
+            trackInfo.ArtistPrimary,
+            variant,
+            trackInfo.SpotifySec
+        );
+    }
+
+    private bool IsM4aPresent(VariantInfo variantInfo) => File.Exists(variantInfo.M4aPath);
+
+    private bool IsMp3Present(VariantInfo variantInfo) => File.Exists(variantInfo.Mp3Path);
+
+    private async Task<bool> DownloadTrackAsync(
+        VariantInfo variantInfo,
+        string downloadSpec,
+        CancellationToken ct
+    )
+    {
+        var tmpl = variantInfo.BaseName + ".%(ext)s";
+        var args = new List<string>
+        {
+            "--no-config",
+            "-f",
+            "bestaudio[ext=m4a]/bestaudio",
+            "--output",
+            Path.Combine(outputDir, tmpl),
+            "--no-playlist",
+            "--embed-thumbnail",
+            "--add-metadata",
+            "--remux-video",
+            "m4a",
+        };
+
+        if (config.ExcludeInstrumentals)
+        {
+            args.AddRange(new[] { "--reject-title", "instrumental" });
+        }
+
+        args.Add(downloadSpec);
+
+        logCallback(
+            $"yt-dlp {string.Join(" ", args.Select(a => a.Contains(" ") ? $"\"{a}\"" : a))}",
+            false
+        );
+
+        var (exitCode, stdout, stderr) = await RunCommandAsync("yt-dlp", args, ct)
+            .ConfigureAwait(false);
+
+        if (exitCode == 0 || stdout.Contains("has already been recorded in the archive"))
+        {
+            if (File.Exists(variantInfo.M4aPath))
+            {
+                logCallback(
+                    $"Successfully downloaded: {Path.GetFileName(variantInfo.M4aPath)}",
+                    false
+                );
+                return true;
+            }
+            else
+            {
+                logCallback($"File not found after download: {variantInfo.M4aPath}", true);
+            }
+        }
+        else
+        {
+            logCallback($"yt-dlp download failed: {stderr}", true);
+        }
+
+        return false;
+    }
+
+    private async Task<bool> ConvertTrackAsync(
+        VariantInfo variantInfo,
+        Track track,
+        CancellationToken ct
+    )
+    {
+        if (config.TranscodeMp3)
+        {
+            if (!File.Exists(variantInfo.Mp3Path))
+            {
+                logCallback(
+                    $"Conversion to MP3 enabled. Transcoding {Path.GetFileName(variantInfo.M4aPath)} to MP3...",
+                    false
+                );
+                var args = new[]
+                {
+                    "-y",
+                    "-i",
+                    variantInfo.M4aPath,
+                    "-q:a",
+                    "0",
+                    variantInfo.Mp3Path,
+                };
+                var fullCmd = $"ffmpeg {string.Join(" ", args)}";
+                logCallback($"Executing command: {fullCmd}", false);
+
+                var (exitCode, stdout, stderr) = await RunCommandAsync("ffmpeg", args, ct)
+                    .ConfigureAwait(false);
+
+                if (exitCode != 0 || !File.Exists(variantInfo.Mp3Path))
+                {
+                    logCallback($"ffmpeg conversion failed: {stderr}", true);
+                    return false;
+                }
+                logCallback(
+                    $"Successfully converted to MP3: {Path.GetFileName(variantInfo.Mp3Path)}",
+                    false
+                );
+            }
+            else
+            {
+                logCallback(
+                    $"MP3 already exists, skipping conversion: {Path.GetFileName(variantInfo.Mp3Path)}",
+                    false
+                );
+            }
+        }
+
+        var finalPath = config.TranscodeMp3 ? variantInfo.Mp3Path : variantInfo.M4aPath;
+        var metadata = new MetadataEmbedder();
+        logCallback("Embedding metadata...", false);
+        metadata.EmbedTags(
+            finalPath,
+            track.TrackName ?? "Unknown",
+            variantInfo.ArtistPrimary,
+            track.AlbumName ?? "Unknown",
+            (uint)track.TrackNumber,
+            config.TranscodeMp3
+        );
+        logCallback($"Successfully finished processing: {variantInfo.BaseName}", false);
+
+        return true;
+    }
+
+    private void GenerateM3uPlaylist()
+    {
+        var m3uPath = Path.Combine(outputDir, "playlist.m3u");
+        var audioFiles = Directory
+            .GetFiles(outputDir)
+            .Where(f => f.EndsWith(".mp3") || f.EndsWith(".m4a"))
+            .OrderBy(File.GetCreationTime)
+            .ToList();
+        using var sw = new StreamWriter(m3uPath);
+        sw.WriteLine("#EXTM3U");
+        foreach (var file in audioFiles)
+        {
+            sw.WriteLine($"#EXTINF:-1,{Path.GetFileNameWithoutExtension(file)}");
+            sw.WriteLine(Path.GetFileName(file));
+        }
+    }
+
+    private async Task<string> PerformDeepSearchAsync(
+        string query,
+        string safeTitle,
+        string safeArtist,
+        string variant,
+        int? spotifySec,
+        CancellationToken ct
+    )
+    {
+        var (code1, stdout1, _) = await RunCommandAsync(
+                "yt-dlp",
+                new[] { "--dump-single-json", "--no-playlist", $"ytsearch1:{query}" },
+                ct
+            )
+            .ConfigureAwait(false);
         if (code1 == 0)
         {
             try
@@ -169,14 +388,22 @@ public class Downloader
                 if (root.TryGetProperty("entries", out var entries) && entries.GetArrayLength() > 0)
                 {
                     var top = entries[0];
-                    var vidTitle = top.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
-                    var uploader = top.TryGetProperty("uploader", out var u) ? (u.GetString() ?? "").ToLower() : "";
+                    var vidTitle = top.TryGetProperty("title", out var t)
+                        ? t.GetString() ?? ""
+                        : "";
+                    var uploader = top.TryGetProperty("uploader", out var u)
+                        ? (u.GetString() ?? "").ToLower()
+                        : "";
                     var duration = top.TryGetProperty("duration", out var d) ? d.GetDouble() : 0;
 
-                    bool passes = safeTitle.ToLower().Contains(vidTitle.ToLower()) || vidTitle.ToLower().Contains(safeTitle.ToLower());
-                    if (!string.IsNullOrEmpty(safeArtist)) passes &= uploader.Contains(safeArtist.ToLower());
-                    if (spotifySec.HasValue) passes &= Math.Abs(duration - spotifySec.Value) <= 10;
-                    passes &= duration >= _config.DurationMin && duration <= _config.DurationMax;
+                    bool passes =
+                        safeTitle.ToLower().Contains(vidTitle.ToLower())
+                        || vidTitle.ToLower().Contains(safeTitle.ToLower());
+                    if (!string.IsNullOrEmpty(safeArtist))
+                        passes &= uploader.Contains(safeArtist.ToLower());
+                    if (spotifySec.HasValue)
+                        passes &= Math.Abs(duration - spotifySec.Value) <= 10;
+                    passes &= duration >= config.DurationMin && duration <= config.DurationMax;
 
                     if (passes && top.TryGetProperty("webpage_url", out var url))
                     {
@@ -184,10 +411,28 @@ public class Downloader
                     }
                 }
             }
-            catch { }
+            catch (JsonException ex)
+            {
+                logCallback($"JSON parsing error in deep search (step 1): {ex.Message}", true);
+            }
+            catch (Exception ex)
+            {
+                logCallback($"Unexpected error in deep search (step 1): {ex.Message}", true);
+            }
         }
 
-        var (code3, stdout3, _) = await RunCommandAsync("yt-dlp", new[] { "--flat-playlist", "--dump-single-json", "--no-playlist", $"ytsearch3:{query}" });
+        var (code3, stdout3, _) = await RunCommandAsync(
+                "yt-dlp",
+                new[]
+                {
+                    "--flat-playlist",
+                    "--dump-single-json",
+                    "--no-playlist",
+                    $"ytsearch3:{query}",
+                },
+                ct
+            )
+            .ConfigureAwait(false);
         if (code3 == 0)
         {
             try
@@ -203,28 +448,56 @@ public class Downloader
                         {
                             var vid = idProp.GetString();
                             var url = $"https://www.youtube.com/watch?v={vid}";
-                            var (codeI, stdoutI, _) = await RunCommandAsync("yt-dlp", new[] { "--dump-single-json", "--no-playlist", url });
+                            var (codeI, stdoutI, _) = await RunCommandAsync(
+                                    "yt-dlp",
+                                    new[] { "--dump-single-json", "--no-playlist", url },
+                                    ct
+                                )
+                                .ConfigureAwait(false);
                             if (codeI == 0)
                             {
                                 try
                                 {
                                     using var iDoc = JsonDocument.Parse(stdoutI);
                                     var info = iDoc.RootElement;
-                                    var rawTitle = info.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+                                    var rawTitle = info.TryGetProperty("title", out var t)
+                                        ? t.GetString() ?? ""
+                                        : "";
                                     var lowTitle = rawTitle.ToLower();
-                                    var dur2 = info.TryGetProperty("duration", out var d) ? d.GetDouble() : 0;
-                                    var up2 = info.TryGetProperty("uploader", out var u) ? (u.GetString() ?? "").ToLower() : "";
+                                    var dur2 = info.TryGetProperty("duration", out var d)
+                                        ? d.GetDouble()
+                                        : 0;
+                                    var up2 = info.TryGetProperty("uploader", out var u)
+                                        ? (u.GetString() ?? "").ToLower()
+                                        : "";
 
-                                    if (dur2 < _config.DurationMin || dur2 > _config.DurationMax) continue;
-                                    if (lowTitle.Contains("#shorts")) continue;
-                                    if (!string.IsNullOrEmpty(safeArtist) && !up2.Contains(safeArtist.ToLower())) continue;
-                                    if (!string.IsNullOrEmpty(variant) && !lowTitle.Contains(variant.ToLower())) continue;
+                                    if (dur2 < config.DurationMin || dur2 > config.DurationMax)
+                                        continue;
+                                    if (lowTitle.Contains("#shorts"))
+                                        continue;
+                                    if (
+                                        !string.IsNullOrEmpty(safeArtist)
+                                        && !up2.Contains(safeArtist.ToLower())
+                                    )
+                                        continue;
+                                    if (
+                                        !string.IsNullOrEmpty(variant)
+                                        && !lowTitle.Contains(variant.ToLower())
+                                    )
+                                        continue;
 
                                     int score = lowTitle.StartsWith(safeTitle.ToLower()) ? 100 : 80;
-                                    if (spotifySec.HasValue) score -= (int)Math.Abs(dur2 - spotifySec.Value);
+                                    if (spotifySec.HasValue)
+                                        score -= (int)Math.Abs(dur2 - spotifySec.Value);
                                     scored.Add((score, url));
                                 }
-                                catch { }
+                                catch (JsonException ex)
+                                {
+                                    logCallback(
+                                        $"JSON parsing error for video info: {ex.Message}",
+                                        true
+                                    );
+                                }
                             }
                         }
                     }
@@ -235,13 +508,24 @@ public class Downloader
                     }
                 }
             }
-            catch { }
+            catch (JsonException ex)
+            {
+                logCallback($"JSON parsing error in deep search (step 3): {ex.Message}", true);
+            }
+            catch (Exception ex)
+            {
+                logCallback($"Unexpected error in deep search (step 3): {ex.Message}", true);
+            }
         }
 
         return $"ytsearch1:{query}";
     }
 
-    private async Task<(int exitCode, string stdout, string stderr)> RunCommandAsync(string command, IEnumerable<string> args)
+    private async Task<(int exitCode, string stdout, string stderr)> RunCommandAsync(
+        string command,
+        IEnumerable<string> args,
+        CancellationToken ct
+    )
     {
         var psi = new ProcessStartInfo
         {
@@ -249,7 +533,7 @@ public class Downloader
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
-            CreateNoWindow = true
+            CreateNoWindow = true,
         };
 
         foreach (var arg in args)
@@ -261,13 +545,21 @@ public class Downloader
         {
             using var process = new Process { StartInfo = psi };
             process.Start();
-            
-            var stdoutTask = process.StandardOutput.ReadToEndAsync();
-            var stderrTask = process.StandardError.ReadToEndAsync();
-            
-            await process.WaitForExitAsync();
-            
-            return (process.ExitCode, await stdoutTask, await stderrTask);
+
+            var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
+            var stderrTask = process.StandardError.ReadToEndAsync(ct);
+
+            await process.WaitForExitAsync(ct).ConfigureAwait(false);
+
+            return (
+                process.ExitCode,
+                await stdoutTask.ConfigureAwait(false),
+                await stderrTask.ConfigureAwait(false)
+            );
+        }
+        catch (OperationCanceledException)
+        {
+            return (-1, "", "Operation cancelled by user.");
         }
         catch (Exception ex)
         {

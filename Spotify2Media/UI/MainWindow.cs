@@ -194,6 +194,8 @@ public class MainWindow : Window
         _config.Save();
     }
 
+    private CancellationTokenSource? _conversionCts;
+
     private async void StartConversion()
     {
         var csvPath = _csvPathField.Text.ToString();
@@ -211,6 +213,7 @@ public class MainWindow : Window
         }
 
         _convertBtn.Enabled = false;
+        _conversionCts = new CancellationTokenSource();
 
         try
         {
@@ -243,13 +246,21 @@ public class MainWindow : Window
                 (msg, isError) => _logWindow.Log(msg, isError)
             );
 
-            var notFound = await downloader.DownloadPlaylistAsync(tracks);
+            var notFound = await downloader.DownloadPlaylistAsync(tracks, _conversionCts.Token);
 
             Application.Invoke(() =>
             {
                 _statusLabel.Text =
                     $"✅ Completed. {tracks.Count - notFound.Count} downloaded, {notFound.Count} failed.";
                 _progressBar.Fraction = 1.0f;
+                _convertBtn.Enabled = true;
+            });
+        }
+        catch (OperationCanceledException)
+        {
+            Application.Invoke(() =>
+            {
+                _statusLabel.Text = "❌ Conversion cancelled.";
                 _convertBtn.Enabled = true;
             });
         }
@@ -260,6 +271,11 @@ public class MainWindow : Window
                 MessageBox.ErrorQuery("Error", ex.Message, "OK");
                 _convertBtn.Enabled = true;
             });
+        }
+        finally
+        {
+            _conversionCts?.Dispose();
+            _conversionCts = null;
         }
     }
 }
