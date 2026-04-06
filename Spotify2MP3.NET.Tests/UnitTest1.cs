@@ -1,4 +1,4 @@
-namespace Spotify2Media.Tests;
+namespace Spotify2MP3.NET.Tests;
 
 public class UnitTest1
 {

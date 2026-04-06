@@ -1,9 +1,9 @@
 using System;
 using System.Linq;
 using Terminal.Gui;
-using Spotify2Media.UI;
+using Spotify2MP3.NET.UI;
 
-namespace Spotify2Media;
+namespace Spotify2MP3.NET;
 
 class Program
 {

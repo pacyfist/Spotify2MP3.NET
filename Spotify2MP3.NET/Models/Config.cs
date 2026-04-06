@@ -4,7 +4,7 @@ using System.IO;
 using System.Collections.Generic;
 using System;
 
-namespace Spotify2Media.Models;
+namespace Spotify2MP3.NET.Models;
 
 public class Config
 {

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using Terminal.Gui;
 
-namespace Spotify2Media.UI;
+namespace Spotify2MP3.NET.UI;
 
 public class LogWindow : Window
 {

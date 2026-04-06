@@ -3,7 +3,7 @@ using System.IO;
 using Serilog;
 using Serilog.Events;
 
-namespace Spotify2Media.Core;
+namespace Spotify2MP3.NET.Core;
 
 public class ConversionLogger : IDisposable
 {

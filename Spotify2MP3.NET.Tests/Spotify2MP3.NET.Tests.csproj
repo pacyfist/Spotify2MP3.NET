@@ -23,7 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Spotify2Media\Spotify2Media.csproj" />
+    <ProjectReference Include="..\Spotify2MP3.NET\Spotify2MP3.NET.csproj" />
   </ItemGroup>
 
 </Project>

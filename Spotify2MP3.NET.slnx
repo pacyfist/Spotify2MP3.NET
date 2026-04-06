@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="Spotify2MP3.NET.Tests/Spotify2MP3.NET.Tests.csproj" />
+  <Project Path="Spotify2MP3.NET/Spotify2MP3.NET.csproj" />
+</Solution>

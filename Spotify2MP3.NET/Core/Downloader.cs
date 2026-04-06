@@ -7,9 +7,9 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
-using Spotify2Media.Models;
+using Spotify2MP3.NET.Models;
 
-namespace Spotify2Media.Core;
+namespace Spotify2MP3.NET.Core;
 
 public partial class Downloader(
     Config config,

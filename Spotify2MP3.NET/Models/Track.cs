@@ -1,6 +1,6 @@
 using CsvHelper.Configuration.Attributes;
 
-namespace Spotify2Media.Models;
+namespace Spotify2MP3.NET.Models;
 
 public class Track
 {

@@ -1,9 +1,9 @@
 using System;
 using System.Linq;
-using Spotify2Media.Models;
+using Spotify2MP3.NET.Models;
 using Terminal.Gui;
 
-namespace Spotify2Media.UI;
+namespace Spotify2MP3.NET.UI;
 
 public class SettingsDialog : Dialog
 {

@@ -5,11 +5,11 @@ using System.IO;
 using System.Linq;
 using CsvHelper;
 using CsvHelper.Configuration;
-using Spotify2Media.Core;
-using Spotify2Media.Models;
+using Spotify2MP3.NET.Core;
+using Spotify2MP3.NET.Models;
 using Terminal.Gui;
 
-namespace Spotify2Media.UI;
+namespace Spotify2MP3.NET.UI;
 
 public class MainWindow : Window
 {

@@ -1,7 +1,7 @@
 using System;
 using TagLib;
 
-namespace Spotify2Media.Core;
+namespace Spotify2MP3.NET.Core;
 
 public class MetadataEmbedder
 {

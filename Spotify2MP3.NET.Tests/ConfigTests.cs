@@ -1,8 +1,8 @@
 using System.IO;
 using Xunit;
-using Spotify2Media.Models;
+using Spotify2MP3.NET.Models;
 
-namespace Spotify2Media.Tests;
+namespace Spotify2MP3.NET.Tests;
 
 public class ConfigTests
 {
