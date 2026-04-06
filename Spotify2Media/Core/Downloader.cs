@@ -17,7 +17,7 @@ public partial class Downloader(
     bool deepSearch,
     Action<string> statusCallback,
     Action<int> progressCallback,
-    Action<string, bool> logCallback
+    ConversionLogger logger
 )
 {
     [GeneratedRegex(@"[^\w\s]")]
@@ -70,25 +70,25 @@ public partial class Downloader(
                 var variantInfo = GetVariantInfo(trackInfo, variant);
 
                 // Step 2: Check if output file already exists
-                logCallback($"Processing: {variantInfo.BaseName}", false);
+                logger.Log($"Processing: {variantInfo.BaseName}", false);
                 var existingFile = FindExistingFile(variantInfo);
 
                 if (existingFile != null)
                 {
-                    logCallback($"[OK] Already exists: {Path.GetFileName(existingFile)}", false);
+                    logger.Log($"[OK] Already exists: {Path.GetFileName(existingFile)}", false);
                     success = true;
                 }
                 else
                 {
                     // Step 3: Search for the track
                     statusCallback($"[{i}/{total}] Processing: {variantInfo.Query}");
-                    logCallback($"Searching for: {variantInfo.Query}", false);
+                    logger.Log($"Searching for: {variantInfo.Query}", false);
 
                     string downloadSpec = $"ytsearch1:{variantInfo.Query}";
 
                     if (deepSearch)
                     {
-                        logCallback("Performing deep search...", false);
+                        logger.Log("Performing deep search...", false);
                         downloadSpec = await PerformDeepSearchAsync(
                                 variantInfo.Query,
                                 variantInfo.SafeTitle,
@@ -98,7 +98,7 @@ public partial class Downloader(
                                 ct
                             )
                             .ConfigureAwait(false);
-                        logCallback($"Deep search result: {downloadSpec}", false);
+                        logger.Log($"Deep search result: {downloadSpec}", false);
                     }
 
                     // Step 4: Download the track (yt-dlp handles MP3 conversion if enabled)
@@ -107,14 +107,14 @@ public partial class Downloader(
 
                     if (downloadedFile != null)
                     {
-                        logCallback(
+                        logger.Log(
                             $"[OK] Download successful: {Path.GetFileName(downloadedFile)}",
                             false
                         );
 
                         // Embed metadata
                         var metadata = new MetadataEmbedder();
-                        logCallback("Embedding metadata...", false);
+                        logger.Log("Embedding metadata...", false);
                         metadata.EmbedTags(
                             downloadedFile,
                             track.TrackName ?? "Unknown",
@@ -122,7 +122,7 @@ public partial class Downloader(
                             track.AlbumName ?? "Unknown",
                             (uint)track.TrackNumber
                         );
-                        logCallback(
+                        logger.Log(
                             $"Successfully finished processing: {variantInfo.BaseName}",
                             false
                         );
@@ -130,7 +130,7 @@ public partial class Downloader(
                     }
                     else
                     {
-                        logCallback("[Error] Download failed", true);
+                        logger.Log("[Error] Download failed", true);
                         success = false;
                         break;
                     }
@@ -140,7 +140,7 @@ public partial class Downloader(
             if (!success)
             {
                 notFound.Add(track);
-                logCallback($"Failed to find or download: {track.TrackName}", true);
+                logger.Log($"Failed to find or download: {track.TrackName}", true);
             }
 
             progressCallback((int)((double)i / total * 100));
@@ -240,7 +240,7 @@ public partial class Downloader(
 
         args.Add(downloadSpec);
 
-        logCallback(
+        logger.Log(
             $"yt-dlp {string.Join(" ", args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}",
             false
         );
@@ -257,12 +257,12 @@ public partial class Downloader(
             }
             else
             {
-                logCallback($"File not found after download: {variantInfo.BaseName}", true);
+                logger.Log($"File not found after download: {variantInfo.BaseName}", true);
             }
         }
         else
         {
-            logCallback($"yt-dlp download failed: {stderr}", true);
+            logger.Log($"yt-dlp download failed: {stderr}", true);
         }
 
         return null;
@@ -334,11 +334,11 @@ public partial class Downloader(
             }
             catch (JsonException ex)
             {
-                logCallback($"JSON parsing error in deep search (step 1): {ex.Message}", true);
+                logger.Log($"JSON parsing error in deep search (step 1): {ex.Message}", true);
             }
             catch (Exception ex)
             {
-                logCallback($"Unexpected error in deep search (step 1): {ex.Message}", true);
+                logger.Log($"Unexpected error in deep search (step 1): {ex.Message}", true);
             }
         }
 
@@ -414,7 +414,7 @@ public partial class Downloader(
                                 }
                                 catch (JsonException ex)
                                 {
-                                    logCallback(
+                                    logger.Log(
                                         $"JSON parsing error for video info: {ex.Message}",
                                         true
                                     );
@@ -431,11 +431,11 @@ public partial class Downloader(
             }
             catch (JsonException ex)
             {
-                logCallback($"JSON parsing error in deep search (step 3): {ex.Message}", true);
+                logger.Log($"JSON parsing error in deep search (step 3): {ex.Message}", true);
             }
             catch (Exception ex)
             {
-                logCallback($"Unexpected error in deep search (step 3): {ex.Message}", true);
+                logger.Log($"Unexpected error in deep search (step 3): {ex.Message}", true);
             }
         }
 

@@ -236,6 +236,12 @@ public class MainWindow : Window
             var playlistName = Path.GetFileNameWithoutExtension(csvPath);
             var playlistDir = Path.Combine(outPath, playlistName);
 
+            Directory.CreateDirectory(playlistDir);
+            using var logger = new ConversionLogger(
+                playlistDir,
+                (msg, isError) => _logWindow.Log(msg, isError)
+            );
+
             var downloader = new Downloader(
                 _config,
                 playlistDir,
@@ -243,7 +249,7 @@ public class MainWindow : Window
                 status => Application.Invoke(() => _statusLabel.Text = status),
                 progress =>
                     Application.Invoke(() => _progressBar.Fraction = Math.Min(progress / 100f, 1f)),
-                (msg, isError) => _logWindow.Log(msg, isError)
+                logger
             );
 
             var notFound = await downloader.DownloadPlaylistAsync(tracks, _conversionCts.Token);
