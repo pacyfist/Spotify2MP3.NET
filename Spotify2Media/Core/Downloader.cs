@@ -27,6 +27,7 @@ public partial class Downloader(
     private static partial Regex ArtistSeparatorRegex();
 
     private record TrackInfo(
+        string Title,
         string SafeTitle,
         string SafeArtist,
         string ArtistPrimary,
@@ -173,7 +174,7 @@ public partial class Downloader(
             variants.Insert(0, "instrumental");
         }
 
-        return new TrackInfo(safeTitle, safeArtist, artistPrimary, spotifySec, variants);
+        return new TrackInfo(track.TrackName ?? "", safeTitle, safeArtist, artistPrimary, spotifySec, variants);
     }
 
     private VariantInfo GetVariantInfo(TrackInfo trackInfo, string variant)
@@ -181,12 +182,12 @@ public partial class Downloader(
         var variantSuffix = string.IsNullOrEmpty(variant) ? "" : $" - {variant}";
         var baseName = $"{trackInfo.SafeArtist} - {trackInfo.SafeTitle}{variantSuffix}";
 
-        var parts = new List<string> { trackInfo.SafeTitle };
+        var parts = new List<string> { trackInfo.Title };
         if (
-            !string.IsNullOrWhiteSpace(trackInfo.SafeArtist)
-            && trackInfo.SafeArtist.ToLower() != "unknown"
+            !string.IsNullOrWhiteSpace(trackInfo.ArtistPrimary)
+            && trackInfo.ArtistPrimary.ToLower() != "unknown"
         )
-            parts.Add(trackInfo.SafeArtist);
+            parts.Add(trackInfo.ArtistPrimary);
         if (!string.IsNullOrWhiteSpace(variant))
             parts.Add(variant);
 
