@@ -17,9 +17,6 @@ public class Config
     [JsonPropertyName("duration_max")]
     public int DurationMax { get; set; } = 600;
 
-    [JsonPropertyName("transcode_mp3")]
-    public bool TranscodeMp3 { get; set; } = false;
-
     [JsonPropertyName("generate_m3u")]
     public bool GenerateM3u { get; set; } = true;
 

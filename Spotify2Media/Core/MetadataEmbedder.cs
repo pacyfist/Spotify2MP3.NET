@@ -5,7 +5,13 @@ namespace Spotify2Media.Core;
 
 public class MetadataEmbedder
 {
-    public void EmbedTags(string filePath, string title, string artist, string album, uint trackNumber, bool isMp3)
+    public void EmbedTags(
+        string filePath,
+        string title,
+        string artist,
+        string album,
+        uint trackNumber
+    )
     {
         try
         {

@@ -66,13 +66,6 @@ public class SettingsDialog : Dialog
         };
         Add(maxField);
 
-        var mp3Check = new CheckBox()
-        {
-            Text = "Transcode to MP3",
-            X = 1,
-            Y = y++,
-            CheckedState = config.TranscodeMp3 ? CheckState.Checked : CheckState.UnChecked,
-        };
         var m3uCheck = new CheckBox()
         {
             Text = "Generate M3U",
@@ -87,7 +80,7 @@ public class SettingsDialog : Dialog
             Y = y++,
             CheckedState = config.ExcludeInstrumentals ? CheckState.Checked : CheckState.UnChecked,
         };
-        Add(mp3Check, m3uCheck, instrCheck);
+        Add(m3uCheck, instrCheck);
 
         var saveBtn = new Button()
         {
@@ -114,7 +107,6 @@ public class SettingsDialog : Dialog
                 config.DurationMin = min;
             if (int.TryParse(maxField.Text.ToString(), out int max))
                 config.DurationMax = max;
-            config.TranscodeMp3 = mp3Check.CheckedState == CheckState.Checked;
             config.GenerateM3u = m3uCheck.CheckedState == CheckState.Checked;
             config.ExcludeInstrumentals = instrCheck.CheckedState == CheckState.Checked;
             Application.RequestStop();

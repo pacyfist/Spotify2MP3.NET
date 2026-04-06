@@ -12,14 +12,14 @@ public class ConfigTests
         var config = new Config
         {
             DurationMin = 45,
-            TranscodeMp3 = true
+            ExcludeInstrumentals = true
         };
         config.Save();
 
         var loaded = Config.Load();
 
         Assert.Equal(45, loaded.DurationMin);
-        Assert.True(loaded.TranscodeMp3);
-        Assert.False(loaded.ExcludeInstrumentals);
+        Assert.True(loaded.ExcludeInstrumentals);
+        Assert.True(loaded.GenerateM3u);
     }
 }

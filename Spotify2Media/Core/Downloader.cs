@@ -36,8 +36,6 @@ public partial class Downloader(
 
     private record VariantInfo(
         string BaseName,
-        string M4aPath,
-        string Mp3Path,
         string Query,
         string SafeTitle,
         string SafeArtist,
@@ -71,13 +69,13 @@ public partial class Downloader(
                 ct.ThrowIfCancellationRequested();
                 var variantInfo = GetVariantInfo(trackInfo, variant);
 
-                // Step 2: Check if files exist
+                // Step 2: Check if output file already exists
                 logCallback($"Processing: {variantInfo.BaseName}", false);
-                bool m4aExists = IsM4aPresent(variantInfo);
+                var existingFile = FindExistingFile(variantInfo);
 
-                if (m4aExists)
+                if (existingFile != null)
                 {
-                    logCallback("[OK] m4a already exists.", false);
+                    logCallback($"[OK] Already exists: {Path.GetFileName(existingFile)}", false);
                     success = true;
                 }
                 else
@@ -103,49 +101,38 @@ public partial class Downloader(
                         logCallback($"Deep search result: {downloadSpec}", false);
                     }
 
-                    // Step 4: Download the track (if m4a is missing)
-                    bool downloaded = await DownloadTrackAsync(variantInfo, downloadSpec, ct)
+                    // Step 4: Download the track (yt-dlp handles MP3 conversion if enabled)
+                    var downloadedFile = await DownloadTrackAsync(variantInfo, downloadSpec, ct)
                         .ConfigureAwait(false);
 
-                    if (downloaded)
+                    if (downloadedFile != null)
                     {
-                        logCallback("[OK] m4a download successful.", false);
+                        logCallback(
+                            $"[OK] Download successful: {Path.GetFileName(downloadedFile)}",
+                            false
+                        );
+
+                        // Embed metadata
+                        var metadata = new MetadataEmbedder();
+                        logCallback("Embedding metadata...", false);
+                        metadata.EmbedTags(
+                            downloadedFile,
+                            track.TrackName ?? "Unknown",
+                            variantInfo.ArtistPrimary,
+                            track.AlbumName ?? "Unknown",
+                            (uint)track.TrackNumber
+                        );
+                        logCallback(
+                            $"Successfully finished processing: {variantInfo.BaseName}",
+                            false
+                        );
                         success = true;
                     }
                     else
                     {
-                        logCallback("[Error] m4a download failed", true);
+                        logCallback("[Error] Download failed", true);
                         success = false;
                         break;
-                    }
-                }
-
-                if (config.TranscodeMp3)
-                {
-                    bool mp3Exists = IsMp3Present(variantInfo);
-
-                    if (mp3Exists)
-                    {
-                        logCallback("[OK] mp3 already exists.", false);
-                        success = true;
-                    }
-                    else
-                    {
-                        // Step 5: Convert the track
-                        bool converted = await ConvertTrackAsync(variantInfo, track, ct)
-                            .ConfigureAwait(false);
-
-                        if (converted)
-                        {
-                            logCallback("[OK] mp3 conversion successful.", false);
-                            success = true;
-                        }
-                        else
-                        {
-                            logCallback("[Error] mp3 conversion failed", true);
-                            success = false;
-                            break;
-                        }
                     }
                 }
             }
@@ -193,8 +180,6 @@ public partial class Downloader(
     {
         var variantSuffix = string.IsNullOrEmpty(variant) ? "" : $" - {variant}";
         var baseName = $"{trackInfo.SafeArtist} - {trackInfo.SafeTitle}{variantSuffix}";
-        var m4aPath = Path.Combine(outputDir, baseName + ".m4a");
-        var mp3Path = Path.Combine(outputDir, baseName + ".mp3");
 
         var parts = new List<string> { trackInfo.SafeTitle };
         if (
@@ -209,8 +194,6 @@ public partial class Downloader(
 
         return new VariantInfo(
             baseName,
-            m4aPath,
-            mp3Path,
             query,
             trackInfo.SafeTitle,
             trackInfo.SafeArtist,
@@ -220,11 +203,13 @@ public partial class Downloader(
         );
     }
 
-    private bool IsM4aPresent(VariantInfo variantInfo) => File.Exists(variantInfo.M4aPath);
+    private string? FindExistingFile(VariantInfo variantInfo)
+    {
+        var mp3Path = Path.Combine(outputDir, variantInfo.BaseName + ".mp3");
+        return File.Exists(mp3Path) ? mp3Path : null;
+    }
 
-    private bool IsMp3Present(VariantInfo variantInfo) => File.Exists(variantInfo.Mp3Path);
-
-    private async Task<bool> DownloadTrackAsync(
+    private async Task<string?> DownloadTrackAsync(
         VariantInfo variantInfo,
         string downloadSpec,
         CancellationToken ct
@@ -233,27 +218,30 @@ public partial class Downloader(
         var tmpl = variantInfo.BaseName + ".%(ext)s";
         var args = new List<string>
         {
-            "--no-config",
-            "-f",
-            "bestaudio[ext=m4a]/bestaudio",
+            "--ignore-config",
+            "--format",
+            "bestaudio",
             "--output",
             Path.Combine(outputDir, tmpl),
             "--no-playlist",
             "--embed-thumbnail",
-            "--add-metadata",
-            "--remux-video",
-            "m4a",
+            "--embed-metadata",
+            "--extract-audio",
+            "--audio-format",
+            "mp3",
+            "--audio-quality",
+            "0",
         };
 
         if (config.ExcludeInstrumentals)
         {
-            args.AddRange(new[] { "--reject-title", "instrumental" });
+            args.AddRange(["--match-filter", "title!*=instrumental"]);
         }
 
         args.Add(downloadSpec);
 
         logCallback(
-            $"yt-dlp {string.Join(" ", args.Select(a => a.Contains(" ") ? $"\"{a}\"" : a))}",
+            $"yt-dlp {string.Join(" ", args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}",
             false
         );
 
@@ -262,17 +250,14 @@ public partial class Downloader(
 
         if (exitCode == 0 || stdout.Contains("has already been recorded in the archive"))
         {
-            if (File.Exists(variantInfo.M4aPath))
+            var downloadedFile = FindExistingFile(variantInfo);
+            if (downloadedFile != null)
             {
-                logCallback(
-                    $"Successfully downloaded: {Path.GetFileName(variantInfo.M4aPath)}",
-                    false
-                );
-                return true;
+                return downloadedFile;
             }
             else
             {
-                logCallback($"File not found after download: {variantInfo.M4aPath}", true);
+                logCallback($"File not found after download: {variantInfo.BaseName}", true);
             }
         }
         else
@@ -280,71 +265,7 @@ public partial class Downloader(
             logCallback($"yt-dlp download failed: {stderr}", true);
         }
 
-        return false;
-    }
-
-    private async Task<bool> ConvertTrackAsync(
-        VariantInfo variantInfo,
-        Track track,
-        CancellationToken ct
-    )
-    {
-        if (config.TranscodeMp3)
-        {
-            if (!File.Exists(variantInfo.Mp3Path))
-            {
-                logCallback(
-                    $"Conversion to MP3 enabled. Transcoding {Path.GetFileName(variantInfo.M4aPath)} to MP3...",
-                    false
-                );
-                var args = new[]
-                {
-                    "-y",
-                    "-i",
-                    variantInfo.M4aPath,
-                    "-q:a",
-                    "0",
-                    variantInfo.Mp3Path,
-                };
-                var fullCmd = $"ffmpeg {string.Join(" ", args)}";
-                logCallback($"Executing command: {fullCmd}", false);
-
-                var (exitCode, stdout, stderr) = await RunCommandAsync("ffmpeg", args, ct)
-                    .ConfigureAwait(false);
-
-                if (exitCode != 0 || !File.Exists(variantInfo.Mp3Path))
-                {
-                    logCallback($"ffmpeg conversion failed: {stderr}", true);
-                    return false;
-                }
-                logCallback(
-                    $"Successfully converted to MP3: {Path.GetFileName(variantInfo.Mp3Path)}",
-                    false
-                );
-            }
-            else
-            {
-                logCallback(
-                    $"MP3 already exists, skipping conversion: {Path.GetFileName(variantInfo.Mp3Path)}",
-                    false
-                );
-            }
-        }
-
-        var finalPath = config.TranscodeMp3 ? variantInfo.Mp3Path : variantInfo.M4aPath;
-        var metadata = new MetadataEmbedder();
-        logCallback("Embedding metadata...", false);
-        metadata.EmbedTags(
-            finalPath,
-            track.TrackName ?? "Unknown",
-            variantInfo.ArtistPrimary,
-            track.AlbumName ?? "Unknown",
-            (uint)track.TrackNumber,
-            config.TranscodeMp3
-        );
-        logCallback($"Successfully finished processing: {variantInfo.BaseName}", false);
-
-        return true;
+        return null;
     }
 
     private void GenerateM3uPlaylist()
@@ -352,7 +273,7 @@ public partial class Downloader(
         var m3uPath = Path.Combine(outputDir, "playlist.m3u");
         var audioFiles = Directory
             .GetFiles(outputDir)
-            .Where(f => f.EndsWith(".mp3") || f.EndsWith(".m4a"))
+            .Where(f => f.EndsWith(".mp3"))
             .OrderBy(File.GetCreationTime)
             .ToList();
         using var sw = new StreamWriter(m3uPath);
