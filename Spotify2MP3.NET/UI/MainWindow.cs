@@ -26,7 +26,7 @@ public class MainWindow : Window
     public MainWindow(string? defaultFolder = null)
         : base()
     {
-        Title = "Spotify2MP3 .NET";
+        Title = "Spotify2MP3.NET";
         ColorScheme = Colors.ColorSchemes["Base"];
         _config = Config.Load();
         _defaultFolder = defaultFolder;

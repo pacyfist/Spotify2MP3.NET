@@ -1,4 +1,4 @@
-# Spotify2MP3 .NET
+# Spotify2MP3.NET
 
 A terminal user interface (TUI) application that converts Spotify playlists to local MP3 files. It parses Spotify playlist CSV exports, searches for each track on YouTube, downloads the audio, and embeds metadata.
 
