@@ -12,7 +12,7 @@ public class SettingsDialog : Dialog
     {
         Title = "Settings";
         Width = 60;
-        Height = 15;
+        Height = 16;
         ColorScheme = Colors.ColorSchemes["Dialog"];
         var y = 1;
         Add(
@@ -80,7 +80,14 @@ public class SettingsDialog : Dialog
             Y = y++,
             CheckedState = config.ExcludeInstrumentals ? CheckState.Checked : CheckState.UnChecked,
         };
-        Add(m3uCheck, instrCheck);
+        var safeCheck = new CheckBox()
+        {
+            Text = "Safe Mode (pace downloads)",
+            X = 1,
+            Y = y++,
+            CheckedState = config.SafeMode ? CheckState.Checked : CheckState.UnChecked,
+        };
+        Add(m3uCheck, instrCheck, safeCheck);
 
         var saveBtn = new Button()
         {
@@ -109,6 +116,7 @@ public class SettingsDialog : Dialog
                 config.DurationMax = max;
             config.GenerateM3u = m3uCheck.CheckedState == CheckState.Checked;
             config.ExcludeInstrumentals = instrCheck.CheckedState == CheckState.Checked;
+            config.SafeMode = safeCheck.CheckedState == CheckState.Checked;
             Application.RequestStop();
         };
 

@@ -45,6 +45,56 @@ public partial class Downloader(
         int? SpotifySec
     );
 
+    private enum SafeModeTier
+    {
+        Normal,
+        LargeBatch,
+        Aggressive,
+    }
+
+    private SafeModeTier GetSafeModeTier(int trackCount) =>
+        trackCount >= 500 ? SafeModeTier.Aggressive
+        : trackCount >= 250 ? SafeModeTier.LargeBatch
+        : SafeModeTier.Normal;
+
+    private List<string> GetSafeModeArgs(SafeModeTier tier) =>
+        tier switch
+        {
+            SafeModeTier.Normal =>
+            [
+                "--sleep-interval", "2",
+                "--max-sleep-interval", "5",
+                "--sleep-requests", "1",
+                "--limit-rate", "5M",
+            ],
+            SafeModeTier.LargeBatch =>
+            [
+                "--sleep-interval", "5",
+                "--max-sleep-interval", "15",
+                "--sleep-requests", "2",
+                "--limit-rate", "2M",
+                "--throttled-rate", "100K",
+            ],
+            SafeModeTier.Aggressive =>
+            [
+                "--sleep-interval", "10",
+                "--max-sleep-interval", "30",
+                "--sleep-requests", "5",
+                "--limit-rate", "1M",
+                "--throttled-rate", "100K",
+            ],
+            _ => [],
+        };
+
+    private int GetSafeModeDelay(SafeModeTier tier) =>
+        tier switch
+        {
+            SafeModeTier.Normal => 3,
+            SafeModeTier.LargeBatch => 8,
+            SafeModeTier.Aggressive => 15,
+            _ => 0,
+        };
+
     public async Task<List<Track>> DownloadPlaylistAsync(
         List<Track> tracks,
         CancellationToken ct = default
@@ -55,6 +105,17 @@ public partial class Downloader(
         int i = 1;
 
         Directory.CreateDirectory(outputDir);
+
+        SafeModeTier? safeModeTier = null;
+        if (config.SafeMode)
+        {
+            safeModeTier = GetSafeModeTier(total);
+            logger.Log(
+                $"Safe mode enabled — tier: {safeModeTier} ({total} tracks). "
+                + "Downloads will be paced to avoid YouTube throttling.",
+                false
+            );
+        }
 
         foreach (var track in tracks)
         {
@@ -103,7 +164,7 @@ public partial class Downloader(
                     }
 
                     // Step 4: Download the track (yt-dlp handles MP3 conversion if enabled)
-                    var downloadedFile = await DownloadTrackAsync(variantInfo, downloadSpec, ct)
+                    var downloadedFile = await DownloadTrackAsync(variantInfo, downloadSpec, safeModeTier, ct)
                         .ConfigureAwait(false);
 
                     if (downloadedFile != null)
@@ -142,6 +203,13 @@ public partial class Downloader(
             {
                 notFound.Add(track);
                 logger.Log($"Failed to find or download: {track.TrackName}", true);
+            }
+
+            if (safeModeTier.HasValue && i < total)
+            {
+                var delaySec = GetSafeModeDelay(safeModeTier.Value);
+                logger.Log($"Safe mode: waiting {delaySec}s before next track...", false);
+                await Task.Delay(TimeSpan.FromSeconds(delaySec), ct).ConfigureAwait(false);
             }
 
             progressCallback((int)((double)i / total * 100));
@@ -213,6 +281,7 @@ public partial class Downloader(
     private async Task<string?> DownloadTrackAsync(
         VariantInfo variantInfo,
         string downloadSpec,
+        SafeModeTier? safeModeTier,
         CancellationToken ct
     )
     {
@@ -237,6 +306,11 @@ public partial class Downloader(
         if (config.ExcludeInstrumentals)
         {
             args.AddRange(["--match-filter", "title!*=instrumental"]);
+        }
+
+        if (safeModeTier.HasValue)
+        {
+            args.AddRange(GetSafeModeArgs(safeModeTier.Value));
         }
 
         args.Add(downloadSpec);

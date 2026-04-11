@@ -23,6 +23,9 @@ public class Config
     [JsonPropertyName("exclude_instrumentals")]
     public bool ExcludeInstrumentals { get; set; } = false;
 
+    [JsonPropertyName("safe_mode")]
+    public bool SafeMode { get; set; } = false;
+
     [JsonIgnore]
     public static string ConfigPath => Path.Combine(AppContext.BaseDirectory, "config.json");
 
