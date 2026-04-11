@@ -122,6 +122,7 @@ public partial class Downloader(
             ct.ThrowIfCancellationRequested();
             track.TrackNumber = i;
             bool success = false;
+            bool downloaded = false;
 
             // Step 1: Calculate names
             var trackInfo = CalculateNames(track);
@@ -189,6 +190,7 @@ public partial class Downloader(
                             false
                         );
                         success = true;
+                        downloaded = true;
                     }
                     else
                     {
@@ -205,7 +207,7 @@ public partial class Downloader(
                 logger.Log($"Failed to find or download: {track.TrackName}", true);
             }
 
-            if (safeModeTier.HasValue && i < total)
+            if (safeModeTier.HasValue && i < total && downloaded)
             {
                 var delaySec = GetSafeModeDelay(safeModeTier.Value);
                 logger.Log($"Safe mode: waiting {delaySec}s before next track...", false);
