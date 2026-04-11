@@ -203,12 +203,12 @@ public class MainWindow : Window
 
         if (string.IsNullOrWhiteSpace(csvPath) || !File.Exists(csvPath))
         {
-            MessageBox.ErrorQuery("Error", "Invalid CSV path", "OK");
+            ShowDialog("Error", "Invalid CSV path", "Error", centerText: true);
             return;
         }
         if (string.IsNullOrWhiteSpace(outPath))
         {
-            MessageBox.ErrorQuery("Error", "Invalid output directory", "OK");
+            ShowDialog("Error", "Invalid output directory", "Error", centerText: true);
             return;
         }
 
@@ -228,7 +228,7 @@ public class MainWindow : Window
             var tracks = csv.GetRecords<Track>().ToList();
             if (tracks.Count == 0)
             {
-                MessageBox.ErrorQuery("Error", "No tracks found in CSV", "OK");
+                ShowDialog("Error", "No tracks found in CSV", "Error", centerText: true);
                 _convertBtn.Enabled = true;
                 return;
             }
@@ -254,12 +254,28 @@ public class MainWindow : Window
 
             var notFound = await downloader.DownloadPlaylistAsync(tracks, _conversionCts.Token);
 
+            var downloaded = tracks.Count - notFound.Count;
+            var failed = notFound.Count;
+
             Application.Invoke(() =>
             {
-                _statusLabel.Text =
-                    $"✅ Completed. {tracks.Count - notFound.Count} downloaded, {notFound.Count} failed.";
+                _statusLabel.Text = $"✅ Completed. {downloaded} downloaded, {failed} failed.";
                 _progressBar.Fraction = 1.0f;
                 _convertBtn.Enabled = true;
+
+                var summary =
+                    $"Total tracks: {tracks.Count}\nDownloaded:   {downloaded}\nFailed:       {failed}";
+                if (notFound.Count > 0)
+                {
+                    summary +=
+                        "\n\nFailed tracks:\n"
+                        + string.Join(
+                            "\n",
+                            notFound.Select(t => $"  - {t.TrackName} — {t.ArtistNames}")
+                        );
+                }
+
+                ShowDialog("Conversion Complete", summary, "Dialog");
             });
         }
         catch (OperationCanceledException)
@@ -274,7 +290,7 @@ public class MainWindow : Window
         {
             Application.Invoke(() =>
             {
-                MessageBox.ErrorQuery("Error", ex.Message, "OK");
+                ShowDialog("Error", ex.Message, "Error", centerText: true);
                 _convertBtn.Enabled = true;
             });
         }
@@ -283,5 +299,52 @@ public class MainWindow : Window
             _conversionCts?.Dispose();
             _conversionCts = null;
         }
+    }
+
+    private static void ShowDialog(
+        string title,
+        string message,
+        string colorScheme,
+        bool centerText = false
+    )
+    {
+        var dialog = new Dialog
+        {
+            Title = title,
+            Width = 60,
+            Height = 14,
+            ColorScheme = Colors.ColorSchemes[colorScheme],
+        };
+
+        var label = new Label
+        {
+            Text = message,
+            Width = Dim.Fill(2),
+        };
+
+        if (centerText)
+        {
+            label.TextAlignment = Alignment.Center;
+            label.X = 1;
+            label.Y = Pos.Center();
+        }
+        else
+        {
+            label.X = 1;
+            label.Y = 1;
+            label.Height = Dim.Fill(2);
+        }
+
+        var okBtn = new Button
+        {
+            Text = "OK",
+            IsDefault = true,
+            X = Pos.Center(),
+            Y = Pos.AnchorEnd(1),
+        };
+        okBtn.Accepting += (s, e) => Application.RequestStop();
+
+        dialog.Add(label, okBtn);
+        Application.Run(dialog);
     }
 }
