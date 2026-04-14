@@ -32,7 +32,13 @@ dotnet run --project Spotify2MP3.NET/
 
 # Or build first
 dotnet build
-dotnet run --project Spotify2MP3.NET/
+cd Spotify2MP3.NET/bin/Debug/net10.0/
+
+# Linux / macOS
+./Spotify2MP3.NET
+
+# Windows
+./Spotify2MP3.NET.exe
 ```
 
 You can optionally pass a default folder for file dialogs:
@@ -61,13 +67,30 @@ Track Name,Artist Name(s),Album Name,Duration (ms)
 
 ### Settings
 
-| Setting               | Default   | Description                                             |
-| --------------------- | --------- | ------------------------------------------------------- |
-| Variants              | _(empty)_ | Comma-separated search variants (e.g. `remix,acoustic`) |
-| Min Duration          | 30s       | Minimum accepted audio duration                         |
-| Max Duration          | 600s      | Maximum accepted audio duration                         |
-| Generate M3U          | On        | Create a `playlist.m3u` file for media players          |
-| Exclude Instrumentals | Off       | Skip instrumental versions                              |
+| Setting               | Default   | Description                                              |
+| --------------------- | --------- | -------------------------------------------------------- |
+| Variants              | _(empty)_ | Comma-separated search variants (e.g. `remix,acoustic`)  |
+| Min Duration          | 30s       | Minimum accepted audio duration                          |
+| Max Duration          | 600s      | Maximum accepted audio duration                          |
+| Generate M3U          | On        | Create a `playlist.m3u` file for media players           |
+| Exclude Instrumentals | Off       | Skip instrumental versions                               |
+| Safe Mode             | Off       | Pace downloads to prevent YouTube throttling (see below) |
+
+### Safe Mode
+
+Safe Mode automatically adjusts download pacing based on playlist size to avoid YouTube rate-limiting:
+
+| Tier       | Playlist Size | Delay Between Tracks | Rate Limit |
+| ---------- | ------------- | -------------------- | ---------- |
+| Normal     | < 250 tracks  | 3s                   | 5 MB/s     |
+| Large      | 250–499       | 8s                   | 2 MB/s     |
+| Aggressive | 500+          | 15s                  | 1 MB/s     |
+
+Tracks that already exist on disk are skipped without any delay.
+
+### Download Summary
+
+After a conversion finishes, a summary dialog shows the total number of tracks processed, how many were downloaded successfully, and lists any tracks that failed.
 
 ### Output
 
