@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using CsvHelper;
 using CsvHelper.Configuration;
 using Spotify2MP3.NET.Core;
@@ -35,7 +36,7 @@ public class MainWindow : Window
         Add(
             new Label()
             {
-                Text = "1) Select CSV File:",
+                Text = "1) CSV file or Spotify playlist URL:",
                 X = 1,
                 Y = y++,
             }
@@ -198,12 +199,17 @@ public class MainWindow : Window
 
     private async void StartConversion()
     {
-        var csvPath = _csvPathField.Text.ToString();
+        var input = _csvPathField.Text.ToString() ?? string.Empty;
         var outPath = _outputPathField.Text.ToString();
 
-        if (string.IsNullOrWhiteSpace(csvPath) || !File.Exists(csvPath))
+        if (string.IsNullOrWhiteSpace(input))
         {
-            ShowDialog("Error", "Invalid CSV path", "Error", centerText: true);
+            ShowDialog(
+                "Error",
+                "Provide a CSV file path or Spotify playlist URL",
+                "Error",
+                centerText: true
+            );
             return;
         }
         if (string.IsNullOrWhiteSpace(outPath))
@@ -212,28 +218,57 @@ public class MainWindow : Window
             return;
         }
 
+        var isSpotify = SpotifyUrl.TryParseId(input, out var spotifyId);
+        if (!isSpotify && !File.Exists(input))
+        {
+            ShowDialog(
+                "Error",
+                "Input is neither an existing CSV file nor a Spotify playlist URL",
+                "Error",
+                centerText: true
+            );
+            return;
+        }
+
         _convertBtn.Enabled = false;
         _conversionCts = new CancellationTokenSource();
 
         try
         {
-            using var reader = new StreamReader(csvPath);
-            var csvConfig = new CsvConfiguration(CultureInfo.InvariantCulture)
-            {
-                MissingFieldFound = null,
-                HeaderValidated = null,
-            };
-            using var csv = new CsvReader(reader, csvConfig);
+            List<Track> tracks;
+            string playlistName;
 
-            var tracks = csv.GetRecords<Track>().ToList();
+            if (isSpotify)
+            {
+                _statusLabel.Text = "Fetching playlist from Spotify...";
+                using var fetcher = new SpotifyEmbedFetcher();
+                var playlist = await fetcher.FetchPlaylistAsync(
+                    spotifyId,
+                    _conversionCts.Token
+                );
+                tracks = playlist.Tracks;
+                playlistName = SanitizeFolderName(playlist.Name);
+            }
+            else
+            {
+                using var reader = new StreamReader(input);
+                var csvConfig = new CsvConfiguration(CultureInfo.InvariantCulture)
+                {
+                    MissingFieldFound = null,
+                    HeaderValidated = null,
+                };
+                using var csv = new CsvReader(reader, csvConfig);
+                tracks = csv.GetRecords<Track>().ToList();
+                playlistName = Path.GetFileNameWithoutExtension(input);
+            }
+
             if (tracks.Count == 0)
             {
-                ShowDialog("Error", "No tracks found in CSV", "Error", centerText: true);
+                ShowDialog("Error", "No tracks found in playlist", "Error", centerText: true);
                 _convertBtn.Enabled = true;
                 return;
             }
 
-            var playlistName = Path.GetFileNameWithoutExtension(csvPath);
             var playlistDir = Path.Combine(outPath, playlistName);
 
             Directory.CreateDirectory(playlistDir);
@@ -299,6 +334,16 @@ public class MainWindow : Window
             _conversionCts?.Dispose();
             _conversionCts = null;
         }
+    }
+
+    private static string SanitizeFolderName(string name)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(name.Length);
+        foreach (var c in name)
+            sb.Append(Array.IndexOf(invalid, c) >= 0 ? '_' : c);
+        var cleaned = sb.ToString().Trim();
+        return string.IsNullOrEmpty(cleaned) ? "playlist" : cleaned;
     }
 
     private static void ShowDialog(
