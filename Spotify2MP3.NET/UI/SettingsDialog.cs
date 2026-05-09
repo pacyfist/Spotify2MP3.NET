@@ -11,7 +11,7 @@ public class SettingsDialog : Dialog
         Title = "Settings";
         SchemeName = "Dialog";
         Width = 60;
-        Height = 16;
+        Height = 17;
 
         var variantsLabel = new Label
         {
@@ -76,6 +76,13 @@ public class SettingsDialog : Dialog
             Y = Pos.Bottom(instrCheck),
             Value = config.SafeMode ? CheckState.Checked : CheckState.UnChecked,
         };
+        var coverArtCheck = new CheckBox
+        {
+            Text = "Use Spotify cover _Art",
+            X = 1,
+            Y = Pos.Bottom(safeCheck),
+            Value = config.UseSpotifyCoverArt ? CheckState.Checked : CheckState.UnChecked,
+        };
 
         var saveBtn = new Button
         {
@@ -108,6 +115,7 @@ public class SettingsDialog : Dialog
             config.GenerateM3u = m3uCheck.Value == CheckState.Checked;
             config.ExcludeInstrumentals = instrCheck.Value == CheckState.Checked;
             config.SafeMode = safeCheck.Value == CheckState.Checked;
+            config.UseSpotifyCoverArt = coverArtCheck.Value == CheckState.Checked;
             App!.RequestStop();
         };
 
@@ -127,6 +135,7 @@ public class SettingsDialog : Dialog
             m3uCheck,
             instrCheck,
             safeCheck,
+            coverArtCheck,
             saveBtn,
             cancelBtn
         );

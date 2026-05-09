@@ -57,6 +57,56 @@ public sealed class SpotifyEmbedFetcher : IDisposable
         return ParseHtml(html, type);
     }
 
+    /// <summary>
+    /// Downloads raw image bytes from <paramref name="url"/>. Returns an empty array on
+    /// any HTTP error so callers can treat cover-art fetch as best-effort.
+    /// </summary>
+    public async Task<byte[]> FetchImageBytesAsync(string url, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return [];
+        try
+        {
+            return await _http.GetByteArrayAsync(url, ct).ConfigureAwait(false);
+        }
+        catch (HttpRequestException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>
+    /// Fetches the cover-art URL for a single Spotify track ID via the public embed page.
+    /// Used to resolve per-track album covers for playlist inputs (where the playlist embed
+    /// only carries a single playlist-level cover, not per-track album art).
+    /// Returns an empty string if the URL cannot be resolved.
+    /// </summary>
+    public async Task<string> FetchTrackCoverArtUrlAsync(
+        string trackId,
+        CancellationToken ct = default
+    )
+    {
+        if (string.IsNullOrWhiteSpace(trackId))
+            return string.Empty;
+
+        var url = $"https://open.spotify.com/embed/track/{trackId}";
+        try
+        {
+            var html = await _http.GetStringAsync(url, ct).ConfigureAwait(false);
+            var match = NextDataPattern.Match(html);
+            if (!match.Success)
+                return string.Empty;
+            using var doc = JsonDocument.Parse(match.Groups[1].Value);
+            return TryFindEntity(doc.RootElement, out var entity)
+                ? ReadCoverArtUrl(entity)
+                : string.Empty;
+        }
+        catch (HttpRequestException)
+        {
+            return string.Empty;
+        }
+    }
+
     public static SpotifyPlaylist ParseHtml(string html, SpotifyEntityType type)
     {
         var match = NextDataPattern.Match(html);
@@ -77,6 +127,14 @@ public sealed class SpotifyEmbedFetcher : IDisposable
             name = type == SpotifyEntityType.Album ? "album" : "playlist";
 
         var albumNameForTracks = type == SpotifyEntityType.Album ? name : string.Empty;
+
+        // For album inputs the entity-level cover IS the album cover and applies to every
+        // track. For playlist inputs the entity-level cover is the playlist's cover, not
+        // per-track album art — leave AlbumArtUrl empty and let the caller resolve per
+        // track via FetchTrackCoverArtUrlAsync(SpotifyTrackId).
+        var entityCoverUrl = ReadCoverArtUrl(entity);
+        var albumArtUrlForTracks =
+            type == SpotifyEntityType.Album ? entityCoverUrl : string.Empty;
 
         var tracks = new List<Track>();
         if (
@@ -99,12 +157,39 @@ public sealed class SpotifyEmbedFetcher : IDisposable
                         AlbumName = albumNameForTracks,
                         DurationMs = ReadDurationMs(item),
                         TrackNumber = trackNumber++,
+                        SpotifyTrackId = ParseTrackIdFromUri(ReadString(item, "uri")),
+                        AlbumArtUrl = albumArtUrlForTracks,
                     }
                 );
             }
         }
 
         return new SpotifyPlaylist(name, tracks);
+    }
+
+    private static string ReadCoverArtUrl(JsonElement entity)
+    {
+        if (
+            entity.TryGetProperty("coverArt", out var coverArt)
+            && coverArt.TryGetProperty("sources", out var sources)
+            && sources.ValueKind == JsonValueKind.Array
+        )
+        {
+            foreach (var source in sources.EnumerateArray())
+            {
+                var url = ReadString(source, "url");
+                if (!string.IsNullOrWhiteSpace(url))
+                    return url;
+            }
+        }
+        return string.Empty;
+    }
+
+    private static string ParseTrackIdFromUri(string uri)
+    {
+        // Spotify URIs look like "spotify:track:<22-char-id>"
+        const string prefix = "spotify:track:";
+        return uri.StartsWith(prefix, StringComparison.Ordinal) ? uri[prefix.Length..] : string.Empty;
     }
 
     private static bool TryFindEntity(JsonElement root, out JsonElement entity)

@@ -106,6 +106,8 @@ public partial class Downloader(
 
         Directory.CreateDirectory(outputDir);
 
+        using var coverArtFetcher = config.UseSpotifyCoverArt ? new SpotifyEmbedFetcher() : null;
+
         SafeModeTier? safeModeTier = null;
         if (config.SafeMode)
         {
@@ -175,15 +177,25 @@ public partial class Downloader(
                             false
                         );
 
-                        // Embed metadata
+                        // Embed metadata (with optional Spotify cover art)
+                        var coverImage = coverArtFetcher is null
+                            ? null
+                            : await ResolveCoverArtAsync(coverArtFetcher, track, ct).ConfigureAwait(false);
+
                         var metadata = new MetadataEmbedder();
-                        logger.Log("Embedding metadata...", false);
+                        logger.Log(
+                            coverImage is { Length: > 0 }
+                                ? "Embedding metadata (with Spotify cover art)..."
+                                : "Embedding metadata...",
+                            false
+                        );
                         metadata.EmbedTags(
                             downloadedFile,
                             track.TrackName ?? "Unknown",
                             variantInfo.ArtistPrimary,
                             track.AlbumName ?? "Unknown",
-                            (uint)track.TrackNumber
+                            (uint)track.TrackNumber,
+                            coverImage
                         );
                         logger.Log(
                             $"Successfully finished processing: {variantInfo.BaseName}",
@@ -224,6 +236,28 @@ public partial class Downloader(
         }
 
         return notFound;
+    }
+
+    private async Task<byte[]?> ResolveCoverArtAsync(
+        SpotifyEmbedFetcher fetcher,
+        Track track,
+        CancellationToken ct
+    )
+    {
+        // Album inputs already have AlbumArtUrl populated. Playlist inputs have only the
+        // track ID — resolve the per-track album cover URL via /embed/track/{id}.
+        var url = track.AlbumArtUrl;
+        if (string.IsNullOrEmpty(url) && !string.IsNullOrEmpty(track.SpotifyTrackId))
+        {
+            url = await fetcher
+                .FetchTrackCoverArtUrlAsync(track.SpotifyTrackId, ct)
+                .ConfigureAwait(false);
+        }
+        if (string.IsNullOrEmpty(url))
+            return null;
+
+        var bytes = await fetcher.FetchImageBytesAsync(url, ct).ConfigureAwait(false);
+        return bytes.Length > 0 ? bytes : null;
     }
 
     private TrackInfo CalculateNames(Track track)

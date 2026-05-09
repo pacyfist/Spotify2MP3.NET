@@ -19,4 +19,10 @@ public class Track
 
     [Ignore]
     public int TrackNumber { get; set; }
+
+    [Ignore]
+    public string SpotifyTrackId { get; set; } = string.Empty;
+
+    [Ignore]
+    public string AlbumArtUrl { get; set; } = string.Empty;
 }

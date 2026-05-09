@@ -26,6 +26,9 @@ public class Config
     [JsonPropertyName("safe_mode")]
     public bool SafeMode { get; set; } = false;
 
+    [JsonPropertyName("use_spotify_cover_art")]
+    public bool UseSpotifyCoverArt { get; set; } = false;
+
     [JsonIgnore]
     public static string ConfigPath => Path.Combine(AppContext.BaseDirectory, "config.json");
 
