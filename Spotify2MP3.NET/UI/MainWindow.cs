@@ -1,7 +1,3 @@
-using System.Globalization;
-using System.Text;
-using CsvHelper;
-using CsvHelper.Configuration;
 using Spotify2MP3.NET.Core;
 using Spotify2MP3.NET.Models;
 using Terminal.Gui.App;
@@ -24,7 +20,7 @@ public class MainWindow : Window
 
     private CancellationTokenSource? _conversionCts;
 
-    public MainWindow(string? defaultFolder = null)
+    public MainWindow(string? defaultFolder = null, string? defaultSource = null)
     {
         Title = "Spotify2MP3.NET";
         SchemeName = "Base";
@@ -42,7 +38,7 @@ public class MainWindow : Window
         );
         _csvPathField = new TextField
         {
-            Text = "",
+            Text = defaultSource ?? "",
             X = 1,
             Y = y++,
             Width = Dim.Fill() - 15,
@@ -235,7 +231,7 @@ public class MainWindow : Window
         {
             var (tracks, playlistName) = isSpotify
                 ? await LoadTracksFromSpotifyAsync(spotifyType, spotifyId, _conversionCts.Token)
-                : LoadTracksFromCsv(input);
+                : PlaylistLoader.LoadFromCsv(input);
 
             if (tracks.Count == 0)
             {
@@ -338,22 +334,7 @@ public class MainWindow : Window
     )
     {
         _statusLabel.Text = $"Fetching {type.ToString().ToLowerInvariant()} from Spotify...";
-        using var fetcher = new SpotifyEmbedFetcher();
-        var playlist = await fetcher.FetchAsync(type, id, ct);
-        return (playlist.Tracks, SanitizeFolderName(playlist.Name));
-    }
-
-    private static (List<Track> Tracks, string PlaylistName) LoadTracksFromCsv(string path)
-    {
-        using var reader = new StreamReader(path);
-        var csvConfig = new CsvConfiguration(CultureInfo.InvariantCulture)
-        {
-            MissingFieldFound = null,
-            HeaderValidated = null,
-        };
-        using var csv = new CsvReader(reader, csvConfig);
-        var tracks = csv.GetRecords<Track>().ToList();
-        return (tracks, Path.GetFileNameWithoutExtension(path));
+        return await PlaylistLoader.LoadFromSpotifyAsync(type, id, ct);
     }
 
     private void ShowConversionComplete(int totalTracks, List<Track> notFound)
@@ -381,16 +362,6 @@ public class MainWindow : Window
                 + string.Join("\n", notFound.Select(t => $"  - {t.TrackName} — {t.ArtistNames}"));
         }
         return summary;
-    }
-
-    private static string SanitizeFolderName(string name)
-    {
-        var invalid = Path.GetInvalidFileNameChars();
-        var sb = new StringBuilder(name.Length);
-        foreach (var c in name)
-            sb.Append(Array.IndexOf(invalid, c) >= 0 ? '_' : c);
-        var cleaned = sb.ToString().Trim();
-        return string.IsNullOrEmpty(cleaned) ? "playlist" : cleaned;
     }
 
     private void ShowDialog(string title, string message, string schemeName, bool centerText = false)
