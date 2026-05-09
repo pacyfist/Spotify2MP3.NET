@@ -36,7 +36,7 @@ public class MainWindow : Window
         Add(
             new Label()
             {
-                Text = "1) CSV file or Spotify playlist URL:",
+                Text = "1) CSV file or Spotify URL (playlist/album):",
                 X = 1,
                 Y = y++,
             }
@@ -218,12 +218,12 @@ public class MainWindow : Window
             return;
         }
 
-        var isSpotify = SpotifyUrl.TryParseId(input, out var spotifyId);
+        var isSpotify = SpotifyUrl.TryParse(input, out var spotifyType, out var spotifyId);
         if (!isSpotify && !File.Exists(input))
         {
             ShowDialog(
                 "Error",
-                "Input is neither an existing CSV file nor a Spotify playlist URL",
+                "Input is neither an existing CSV file nor a Spotify playlist/album URL",
                 "Error",
                 centerText: true
             );
@@ -240,9 +240,10 @@ public class MainWindow : Window
 
             if (isSpotify)
             {
-                _statusLabel.Text = "Fetching playlist from Spotify...";
+                _statusLabel.Text = $"Fetching {spotifyType.ToString().ToLowerInvariant()} from Spotify...";
                 using var fetcher = new SpotifyEmbedFetcher();
-                var playlist = await fetcher.FetchPlaylistAsync(
+                var playlist = await fetcher.FetchAsync(
+                    spotifyType,
                     spotifyId,
                     _conversionCts.Token
                 );

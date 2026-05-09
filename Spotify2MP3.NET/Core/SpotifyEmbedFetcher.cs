@@ -40,17 +40,24 @@ public sealed class SpotifyEmbedFetcher : IDisposable
         }
     }
 
-    public async Task<SpotifyPlaylist> FetchPlaylistAsync(
-        string playlistId,
+    public async Task<SpotifyPlaylist> FetchAsync(
+        SpotifyEntityType type,
+        string id,
         CancellationToken ct = default
     )
     {
-        var url = $"https://open.spotify.com/embed/playlist/{playlistId}";
+        var path = type switch
+        {
+            SpotifyEntityType.Playlist => "playlist",
+            SpotifyEntityType.Album => "album",
+            _ => throw new ArgumentOutOfRangeException(nameof(type)),
+        };
+        var url = $"https://open.spotify.com/embed/{path}/{id}";
         var html = await _http.GetStringAsync(url, ct).ConfigureAwait(false);
-        return ParsePlaylistHtml(html);
+        return ParseHtml(html, type);
     }
 
-    public static SpotifyPlaylist ParsePlaylistHtml(string html)
+    public static SpotifyPlaylist ParseHtml(string html, SpotifyEntityType type)
     {
         var match = NextDataPattern.Match(html);
         if (!match.Success)
@@ -62,12 +69,14 @@ public sealed class SpotifyEmbedFetcher : IDisposable
 
         if (!TryFindEntity(doc.RootElement, out var entity))
             throw new InvalidOperationException(
-                "Spotify embed JSON did not contain a playlist entity at any known path."
+                "Spotify embed JSON did not contain an entity at any known path."
             );
 
         var name = ReadString(entity, "title");
         if (string.IsNullOrWhiteSpace(name))
-            name = "playlist";
+            name = type == SpotifyEntityType.Album ? "album" : "playlist";
+
+        var albumNameForTracks = type == SpotifyEntityType.Album ? name : string.Empty;
 
         var tracks = new List<Track>();
         if (
@@ -87,7 +96,7 @@ public sealed class SpotifyEmbedFetcher : IDisposable
                     {
                         TrackName = trackName,
                         ArtistNames = ReadString(item, "subtitle"),
-                        AlbumName = string.Empty,
+                        AlbumName = albumNameForTracks,
                         DurationMs = ReadDurationMs(item),
                         TrackNumber = trackNumber++,
                     }
