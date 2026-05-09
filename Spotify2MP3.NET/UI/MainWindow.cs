@@ -1,140 +1,156 @@
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.IO;
-using System.Linq;
 using System.Text;
 using CsvHelper;
 using CsvHelper.Configuration;
 using Spotify2MP3.NET.Core;
 using Spotify2MP3.NET.Models;
-using Terminal.Gui;
+using Terminal.Gui.App;
+using Terminal.Gui.ViewBase;
+using Terminal.Gui.Views;
 
 namespace Spotify2MP3.NET.UI;
 
 public class MainWindow : Window
 {
-    private TextField _csvPathField;
-    private TextField _outputPathField;
-    private CheckBox _deepSearchCheck;
-    private ProgressBar _progressBar;
-    private Label _statusLabel;
-    private Button _convertBtn;
-    private Config _config;
-    private LogWindow _logWindow;
-    private string? _defaultFolder;
+    private readonly TextField _csvPathField;
+    private readonly TextField _outputPathField;
+    private readonly CheckBox _deepSearchCheck;
+    private readonly ProgressBar _progressBar;
+    private readonly Label _statusLabel;
+    private readonly Button _convertBtn;
+    private readonly Config _config;
+    private readonly LogWindow _logWindow;
+    private readonly string? _defaultFolder;
+
+    private CancellationTokenSource? _conversionCts;
 
     public MainWindow(string? defaultFolder = null)
-        : base()
     {
         Title = "Spotify2MP3.NET";
-        ColorScheme = Colors.ColorSchemes["Base"];
+        SchemeName = "Base";
         _config = Config.Load();
         _defaultFolder = defaultFolder;
 
         var y = 1;
         Add(
-            new Label()
+            new Label
             {
                 Text = "1) CSV file or Spotify URL (playlist/album):",
                 X = 1,
                 Y = y++,
             }
         );
-        _csvPathField = new TextField()
+        _csvPathField = new TextField
         {
             Text = "",
             X = 1,
             Y = y++,
-            Width = (Dim.Fill() ?? 0) - 15,
+            Width = Dim.Fill() - 15,
         };
-        var browseCsvBtn = new Button()
+        var browseCsvBtn = new Button
         {
-            Text = "Browse",
+            Text = "_Browse",
             X = Pos.Right(_csvPathField) + 1,
             Y = y - 1,
         };
-        browseCsvBtn.Accepting += (s, e) => BrowseCsv();
+        browseCsvBtn.Accepting += (s, e) =>
+        {
+            e.Handled = true;
+            BrowseCsv();
+        };
         Add(_csvPathField, browseCsvBtn);
 
         y++;
         Add(
-            new Label()
+            new Label
             {
                 Text = "2) Output Folder:",
                 X = 1,
                 Y = y++,
             }
         );
-        _outputPathField = new TextField()
+        _outputPathField = new TextField
         {
             Text = "",
             X = 1,
             Y = y++,
-            Width = (Dim.Fill() ?? 0) - 15,
+            Width = Dim.Fill() - 15,
         };
-        var browseFolderBtn = new Button()
+        var browseFolderBtn = new Button
         {
-            Text = "Browse",
+            Text = "Br_owse",
             X = Pos.Right(_outputPathField) + 1,
             Y = y - 1,
         };
-        browseFolderBtn.Accepting += (s, e) => BrowseFolder();
+        browseFolderBtn.Accepting += (s, e) =>
+        {
+            e.Handled = true;
+            BrowseFolder();
+        };
         Add(_outputPathField, browseFolderBtn);
 
         y++;
         Add(
-            new Label()
+            new Label
             {
                 Text = "3) Conversion Options:",
                 X = 1,
                 Y = y++,
             }
         );
-        _deepSearchCheck = new CheckBox()
+        _deepSearchCheck = new CheckBox
         {
-            Text = "Deep Search (Accurate but slower)",
+            Text = "_Deep Search (Accurate but slower)",
             X = 1,
             Y = y++,
-            CheckedState = CheckState.Checked,
+            Value = CheckState.Checked,
         };
 
-        var settingsBtn = new Button()
+        var settingsBtn = new Button
         {
-            Text = "Settings",
+            Text = "_Settings",
             X = 1,
             Y = y++,
         };
-        settingsBtn.Accepting += (s, e) => OpenSettings();
+        settingsBtn.Accepting += (s, e) =>
+        {
+            e.Handled = true;
+            OpenSettings();
+        };
         Add(_deepSearchCheck, settingsBtn);
 
         y++;
-        _convertBtn = new Button()
+        _convertBtn = new Button
         {
-            Text = "Convert Playlist",
+            Text = "_Convert Playlist",
+            IsDefault = true,
             X = Pos.Center(),
             Y = y++,
         };
-        _convertBtn.Accepting += (s, e) => StartConversion();
+        _convertBtn.Accepting += (s, e) =>
+        {
+            e.Handled = true;
+            StartConversion();
+        };
         Add(_convertBtn);
 
         y++;
         Add(
-            new Label()
+            new Label
             {
                 Text = "Status:",
                 X = 1,
                 Y = y++,
             }
         );
-        _statusLabel = new Label()
+        _statusLabel = new Label
         {
             Text = "Waiting...",
             X = 1,
             Y = y++,
             Width = Dim.Fill(),
         };
-        _progressBar = new ProgressBar()
+        _progressBar = new ProgressBar
         {
             X = 1,
             Y = y++,
@@ -171,7 +187,7 @@ public class MainWindow : Window
         List<IAllowedType>? allowedTypes = null
     )
     {
-        var dialog = new OpenDialog
+        using var dialog = new OpenDialog
         {
             Title = title,
             OpenMode = openMode,
@@ -182,30 +198,38 @@ public class MainWindow : Window
         if (!string.IsNullOrEmpty(_defaultFolder) && Directory.Exists(_defaultFolder))
             dialog.Path = _defaultFolder;
 
-        Application.Run(dialog);
+        App!.Run(dialog);
         if (!dialog.Canceled && !string.IsNullOrEmpty(dialog.Path))
             target.Text = dialog.Path;
     }
 
     private void OpenSettings()
     {
-        var settingsDialog = new SettingsDialog(_config);
-        Application.Run(settingsDialog);
+        using var settingsDialog = new SettingsDialog(_config);
+        App!.Run(settingsDialog);
         _config.Save();
     }
-
-    private CancellationTokenSource? _conversionCts;
 
     private async void StartConversion()
     {
         var input = _csvPathField.Text.ToString() ?? string.Empty;
         var outPath = _outputPathField.Text.ToString() ?? string.Empty;
 
-        if (!ValidateConversionInputs(input, outPath, out var spotifyType, out var spotifyId, out var isSpotify))
+        if (
+            !ValidateConversionInputs(
+                input,
+                outPath,
+                out var spotifyType,
+                out var spotifyId,
+                out var isSpotify
+            )
+        )
             return;
 
         _convertBtn.Enabled = false;
         _conversionCts = new CancellationTokenSource();
+
+        IApplication app = App!;
 
         try
         {
@@ -231,20 +255,20 @@ public class MainWindow : Window
             var downloader = new Downloader(
                 _config,
                 playlistDir,
-                _deepSearchCheck.CheckedState == CheckState.Checked,
-                status => Application.Invoke(() => _statusLabel.Text = status),
+                _deepSearchCheck.Value == CheckState.Checked,
+                status => app.Invoke(() => _statusLabel.Text = status),
                 progress =>
-                    Application.Invoke(() => _progressBar.Fraction = Math.Min(progress / 100f, 1f)),
+                    app.Invoke(() => _progressBar.Fraction = Math.Min(progress / 100f, 1f)),
                 logger
             );
 
             var notFound = await downloader.DownloadPlaylistAsync(tracks, _conversionCts.Token);
 
-            Application.Invoke(() => ShowConversionComplete(tracks.Count, notFound));
+            app.Invoke(() => ShowConversionComplete(tracks.Count, notFound));
         }
         catch (OperationCanceledException)
         {
-            Application.Invoke(() =>
+            app.Invoke(() =>
             {
                 _statusLabel.Text = "❌ Conversion cancelled.";
                 _convertBtn.Enabled = true;
@@ -252,7 +276,7 @@ public class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Application.Invoke(() =>
+            app.Invoke(() =>
             {
                 ShowDialog("Error", ex.Message, "Error", centerText: true);
                 _convertBtn.Enabled = true;
@@ -369,50 +393,41 @@ public class MainWindow : Window
         return string.IsNullOrEmpty(cleaned) ? "playlist" : cleaned;
     }
 
-    private static void ShowDialog(
-        string title,
-        string message,
-        string colorScheme,
-        bool centerText = false
-    )
+    private void ShowDialog(string title, string message, string schemeName, bool centerText = false)
     {
-        var dialog = new Dialog
+        using var dialog = new Dialog
         {
             Title = title,
-            Width = 60,
-            Height = 14,
-            ColorScheme = Colors.ColorSchemes[colorScheme],
+            SchemeName = schemeName,
+            Width = Dim.Auto(minimumContentDim: 40, maximumContentDim: Dim.Percent(80)),
+            Height = Dim.Auto(minimumContentDim: 6, maximumContentDim: Dim.Percent(80)),
         };
 
         var label = new Label
         {
             Text = message,
-            Width = Dim.Fill(2),
+            X = 1,
+            Y = 1,
+            Width = Dim.Fill(1),
+            Height = Dim.Fill(2),
         };
-
         if (centerText)
-        {
             label.TextAlignment = Alignment.Center;
-            label.X = 1;
-            label.Y = Pos.Center();
-        }
-        else
-        {
-            label.X = 1;
-            label.Y = 1;
-            label.Height = Dim.Fill(2);
-        }
 
         var okBtn = new Button
         {
-            Text = "OK",
+            Text = "_OK",
             IsDefault = true,
             X = Pos.Center(),
             Y = Pos.AnchorEnd(1),
         };
-        okBtn.Accepting += (s, e) => Application.RequestStop();
+        okBtn.Accepting += (s, e) =>
+        {
+            e.Handled = true;
+            App!.RequestStop();
+        };
 
         dialog.Add(label, okBtn);
-        Application.Run(dialog);
+        App!.Run(dialog);
     }
 }

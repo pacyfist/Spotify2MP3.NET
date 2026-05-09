@@ -1,79 +1,75 @@
-using System;
-using System.Linq;
-using Terminal.Gui;
 using Spotify2MP3.NET.UI;
+using Terminal.Gui.App;
+using Terminal.Gui.Configuration;
+using Terminal.Gui.Drawing;
 
 namespace Spotify2MP3.NET;
 
-class Program
+internal static class Program
 {
-    static void Main(string[] args)
+    private static int Main(string[] args)
     {
-        string? defaultFolder = null;
-        for (int i = 0; i < args.Length; i++)
+        string? defaultFolder = ParseFolderArg(args);
+
+        RegisterSchemes();
+
+        using IApplication app = Application.Create().Init();
+
+        using var mainWindow = new MainWindow(defaultFolder);
+        app.Run(mainWindow);
+
+        return 0;
+    }
+
+    private static string? ParseFolderArg(string[] args)
+    {
+        for (int i = 0; i < args.Length - 1; i++)
         {
-            if (args[i] == "--folder" && i + 1 < args.Length)
+            if (args[i] == "--folder")
+                return args[i + 1];
+        }
+        return null;
+    }
+
+    private static void RegisterSchemes()
+    {
+        SchemeManager.AddScheme(
+            "Base",
+            new Scheme
             {
-                defaultFolder = args[i + 1];
-                i++;
+                Normal = new Terminal.Gui.Drawing.Attribute(Color.Gray, Color.Black),
+                Focus = new Terminal.Gui.Drawing.Attribute(Color.White, Color.DarkGray),
+                HotNormal = new Terminal.Gui.Drawing.Attribute(Color.BrightCyan, Color.Black),
+                HotFocus = new Terminal.Gui.Drawing.Attribute(Color.BrightCyan, Color.DarkGray),
+                Disabled = new Terminal.Gui.Drawing.Attribute(Color.DarkGray, Color.Black),
             }
-        }
+        );
 
-        Application.Init();
-        Application.QuitKey = Key.C.WithCtrl;
-        
-        // Set dark color scheme
-        var baseScheme = new ColorScheme()
-        {
-            Normal = new Terminal.Gui.Attribute(Color.Gray, Color.Black),
-            Focus = new Terminal.Gui.Attribute(Color.White, Color.DarkGray),
-            HotNormal = new Terminal.Gui.Attribute(Color.BrightCyan, Color.Black),
-            HotFocus = new Terminal.Gui.Attribute(Color.BrightCyan, Color.DarkGray),
-            Disabled = new Terminal.Gui.Attribute(Color.DarkGray, Color.Black)
-        };
-
-        var dialogScheme = new ColorScheme()
-        {
-            Normal = new Terminal.Gui.Attribute(Color.White, Color.DarkGray),
-            Focus = new Terminal.Gui.Attribute(Color.Black, Color.Gray),
-            HotNormal = new Terminal.Gui.Attribute(Color.BrightCyan, Color.DarkGray),
-            HotFocus = new Terminal.Gui.Attribute(Color.BrightCyan, Color.Gray),
-            Disabled = new Terminal.Gui.Attribute(Color.DarkGray, Color.DarkGray)
-        };
-
-        var errorScheme = new ColorScheme()
-        {
-            Normal = new Terminal.Gui.Attribute(Color.BrightRed, Color.Black),
-            Focus = new Terminal.Gui.Attribute(Color.White, Color.BrightRed),
-            HotNormal = new Terminal.Gui.Attribute(Color.BrightYellow, Color.Black),
-            HotFocus = new Terminal.Gui.Attribute(Color.BrightYellow, Color.BrightRed),
-            Disabled = new Terminal.Gui.Attribute(Color.DarkGray, Color.Black)
-        };
-
-        Colors.ColorSchemes["Base"] = baseScheme;
-        Colors.ColorSchemes["Dialog"] = dialogScheme;
-        Colors.ColorSchemes["Error"] = errorScheme;
-
-        Console.CancelKeyPress += (sender, e) =>
-        {
-            e.Cancel = true;
-            Application.Invoke(() =>
+        SchemeManager.AddScheme(
+            "Dialog",
+            new Scheme
             {
-                Application.Shutdown();
-                Environment.Exit(0);
-            });
-        };
+                Normal = new Terminal.Gui.Drawing.Attribute(Color.White, Color.DarkGray),
+                Focus = new Terminal.Gui.Drawing.Attribute(Color.Black, Color.Gray),
+                HotNormal = new Terminal.Gui.Drawing.Attribute(Color.BrightCyan, Color.DarkGray),
+                HotFocus = new Terminal.Gui.Drawing.Attribute(Color.BrightCyan, Color.Gray),
+                Disabled = new Terminal.Gui.Drawing.Attribute(Color.DarkGray, Color.DarkGray),
+            }
+        );
 
-        var mainWindow = new MainWindow(defaultFolder);
-        mainWindow.ColorScheme = baseScheme;
-
-        try
-        {
-            Application.Run(mainWindow);
-        }
-        finally
-        {
-            Application.Shutdown();
-        }
+        SchemeManager.AddScheme(
+            "Error",
+            new Scheme
+            {
+                Normal = new Terminal.Gui.Drawing.Attribute(Color.BrightRed, Color.Black),
+                Focus = new Terminal.Gui.Drawing.Attribute(Color.White, Color.BrightRed),
+                HotNormal = new Terminal.Gui.Drawing.Attribute(Color.BrightYellow, Color.Black),
+                HotFocus = new Terminal.Gui.Drawing.Attribute(
+                    Color.BrightYellow,
+                    Color.BrightRed
+                ),
+                Disabled = new Terminal.Gui.Drawing.Attribute(Color.DarkGray, Color.Black),
+            }
+        );
     }
 }

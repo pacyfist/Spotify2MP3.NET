@@ -1,127 +1,134 @@
-using System;
-using System.Linq;
 using Spotify2MP3.NET.Models;
-using Terminal.Gui;
+using Terminal.Gui.ViewBase;
+using Terminal.Gui.Views;
 
 namespace Spotify2MP3.NET.UI;
 
 public class SettingsDialog : Dialog
 {
     public SettingsDialog(Config config)
-        : base()
     {
         Title = "Settings";
+        SchemeName = "Dialog";
         Width = 60;
         Height = 16;
-        ColorScheme = Colors.ColorSchemes["Dialog"];
-        var y = 1;
-        Add(
-            new Label()
-            {
-                Text = "Variants (comma separated):",
-                X = 1,
-                Y = y,
-            }
-        );
-        var variantsField = new TextField()
+
+        var variantsLabel = new Label
+        {
+            Text = "Variants (comma separated):",
+            X = 1,
+            Y = 1,
+        };
+        var variantsField = new TextField
         {
             Text = string.Join(",", config.Variants),
-            X = 30,
-            Y = y++,
-            Width = 20,
+            X = Pos.Right(variantsLabel) + 1,
+            Y = Pos.Top(variantsLabel),
+            Width = Dim.Fill(1),
         };
-        Add(variantsField);
 
-        Add(
-            new Label()
-            {
-                Text = "Min Duration (s):",
-                X = 1,
-                Y = y,
-            }
-        );
-        var minField = new TextField()
+        var minLabel = new Label
+        {
+            Text = "Min Duration (s):",
+            X = 1,
+            Y = Pos.Bottom(variantsLabel),
+        };
+        var minField = new TextField
         {
             Text = config.DurationMin.ToString(),
-            X = 30,
-            Y = y++,
+            X = Pos.Right(variantsLabel) + 1,
+            Y = Pos.Top(minLabel),
             Width = 10,
         };
-        Add(minField);
 
-        Add(
-            new Label()
-            {
-                Text = "Max Duration (s):",
-                X = 1,
-                Y = y,
-            }
-        );
-        var maxField = new TextField()
+        var maxLabel = new Label
+        {
+            Text = "Max Duration (s):",
+            X = 1,
+            Y = Pos.Bottom(minLabel),
+        };
+        var maxField = new TextField
         {
             Text = config.DurationMax.ToString(),
-            X = 30,
-            Y = y++,
+            X = Pos.Right(variantsLabel) + 1,
+            Y = Pos.Top(maxLabel),
             Width = 10,
         };
-        Add(maxField);
 
-        var m3uCheck = new CheckBox()
+        var m3uCheck = new CheckBox
         {
-            Text = "Generate M3U",
+            Text = "Generate _M3U",
             X = 1,
-            Y = y++,
-            CheckedState = config.GenerateM3u ? CheckState.Checked : CheckState.UnChecked,
+            Y = Pos.Bottom(maxLabel) + 1,
+            Value = config.GenerateM3u ? CheckState.Checked : CheckState.UnChecked,
         };
-        var instrCheck = new CheckBox()
+        var instrCheck = new CheckBox
         {
-            Text = "Exclude Instrumentals",
+            Text = "Exclude _Instrumentals",
             X = 1,
-            Y = y++,
-            CheckedState = config.ExcludeInstrumentals ? CheckState.Checked : CheckState.UnChecked,
+            Y = Pos.Bottom(m3uCheck),
+            Value = config.ExcludeInstrumentals ? CheckState.Checked : CheckState.UnChecked,
         };
-        var safeCheck = new CheckBox()
+        var safeCheck = new CheckBox
         {
-            Text = "Safe Mode (pace downloads)",
+            Text = "Sa_fe Mode (pace downloads)",
             X = 1,
-            Y = y++,
-            CheckedState = config.SafeMode ? CheckState.Checked : CheckState.UnChecked,
+            Y = Pos.Bottom(instrCheck),
+            Value = config.SafeMode ? CheckState.Checked : CheckState.UnChecked,
         };
-        Add(m3uCheck, instrCheck, safeCheck);
 
-        var saveBtn = new Button()
+        var saveBtn = new Button
         {
-            Text = "Save",
+            Text = "_Save",
             IsDefault = true,
-            X = Pos.Center() - 10,
-            Y = y + 1,
+            X = Pos.Align(Alignment.Center),
+            Y = Pos.AnchorEnd(1),
         };
-        var cancelBtn = new Button()
+        var cancelBtn = new Button
         {
-            Text = "Cancel",
-            X = Pos.Center() + 2,
-            Y = y + 1,
+            Text = "_Cancel",
+            X = Pos.Align(Alignment.Center),
+            Y = Pos.AnchorEnd(1),
         };
 
         saveBtn.Accepting += (s, e) =>
         {
-            config.Variants = (variantsField.Text?.ToString() ?? "")
-                .Split(',')
-                .Select(x => x.Trim())
-                .Where(x => !string.IsNullOrEmpty(x))
-                .ToList();
+            e.Handled = true;
+            config.Variants =
+            [
+                .. (variantsField.Text?.ToString() ?? "")
+                    .Split(',')
+                    .Select(x => x.Trim())
+                    .Where(x => !string.IsNullOrEmpty(x)),
+            ];
             if (int.TryParse(minField.Text.ToString(), out int min))
                 config.DurationMin = min;
             if (int.TryParse(maxField.Text.ToString(), out int max))
                 config.DurationMax = max;
-            config.GenerateM3u = m3uCheck.CheckedState == CheckState.Checked;
-            config.ExcludeInstrumentals = instrCheck.CheckedState == CheckState.Checked;
-            config.SafeMode = safeCheck.CheckedState == CheckState.Checked;
-            Application.RequestStop();
+            config.GenerateM3u = m3uCheck.Value == CheckState.Checked;
+            config.ExcludeInstrumentals = instrCheck.Value == CheckState.Checked;
+            config.SafeMode = safeCheck.Value == CheckState.Checked;
+            App!.RequestStop();
         };
 
-        cancelBtn.Accepting += (s, e) => Application.RequestStop();
+        cancelBtn.Accepting += (s, e) =>
+        {
+            e.Handled = true;
+            App!.RequestStop();
+        };
 
-        Add(saveBtn, cancelBtn);
+        Add(
+            variantsLabel,
+            variantsField,
+            minLabel,
+            minField,
+            maxLabel,
+            maxField,
+            m3uCheck,
+            instrCheck,
+            safeCheck,
+            saveBtn,
+            cancelBtn
+        );
     }
 }
