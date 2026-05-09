@@ -153,39 +153,38 @@ public class MainWindow : Window
         Add(_logWindow);
     }
 
-    private void BrowseCsv()
-    {
-        var dialog = new OpenDialog { Title = "Open CSV" };
-        dialog.AllowsMultipleSelection = false;
-        dialog.AllowedTypes = new List<IAllowedType> { new AllowedType("CSV File", ".csv") };
-        if (!string.IsNullOrEmpty(_defaultFolder) && Directory.Exists(_defaultFolder))
-        {
-            dialog.Path = _defaultFolder;
-        }
-        Application.Run(dialog);
-        if (!dialog.Canceled)
-        {
-            var p = dialog.Path;
-            if (!string.IsNullOrEmpty(p))
-                _csvPathField.Text = p;
-        }
-    }
+    private void BrowseCsv() =>
+        BrowseInto(
+            _csvPathField,
+            "Open CSV",
+            OpenMode.File,
+            new List<IAllowedType> { new AllowedType("CSV File", ".csv") }
+        );
 
-    private void BrowseFolder()
+    private void BrowseFolder() =>
+        BrowseInto(_outputPathField, "Output Folder", OpenMode.Directory);
+
+    private void BrowseInto(
+        TextField target,
+        string title,
+        OpenMode openMode,
+        List<IAllowedType>? allowedTypes = null
+    )
     {
-        var dialog = new OpenDialog { Title = "Output Folder" };
-        dialog.OpenMode = OpenMode.Directory;
+        var dialog = new OpenDialog
+        {
+            Title = title,
+            OpenMode = openMode,
+            AllowsMultipleSelection = false,
+        };
+        if (allowedTypes != null)
+            dialog.AllowedTypes = allowedTypes;
         if (!string.IsNullOrEmpty(_defaultFolder) && Directory.Exists(_defaultFolder))
-        {
             dialog.Path = _defaultFolder;
-        }
+
         Application.Run(dialog);
-        if (!dialog.Canceled)
-        {
-            var p = dialog.Path;
-            if (!string.IsNullOrEmpty(p))
-                _outputPathField.Text = p;
-        }
+        if (!dialog.Canceled && !string.IsNullOrEmpty(dialog.Path))
+            target.Text = dialog.Path;
     }
 
     private void OpenSettings()
@@ -200,68 +199,19 @@ public class MainWindow : Window
     private async void StartConversion()
     {
         var input = _csvPathField.Text.ToString() ?? string.Empty;
-        var outPath = _outputPathField.Text.ToString();
+        var outPath = _outputPathField.Text.ToString() ?? string.Empty;
 
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            ShowDialog(
-                "Error",
-                "Provide a CSV file path or Spotify playlist URL",
-                "Error",
-                centerText: true
-            );
+        if (!ValidateConversionInputs(input, outPath, out var spotifyType, out var spotifyId, out var isSpotify))
             return;
-        }
-        if (string.IsNullOrWhiteSpace(outPath))
-        {
-            ShowDialog("Error", "Invalid output directory", "Error", centerText: true);
-            return;
-        }
-
-        var isSpotify = SpotifyUrl.TryParse(input, out var spotifyType, out var spotifyId);
-        if (!isSpotify && !File.Exists(input))
-        {
-            ShowDialog(
-                "Error",
-                "Input is neither an existing CSV file nor a Spotify playlist/album URL",
-                "Error",
-                centerText: true
-            );
-            return;
-        }
 
         _convertBtn.Enabled = false;
         _conversionCts = new CancellationTokenSource();
 
         try
         {
-            List<Track> tracks;
-            string playlistName;
-
-            if (isSpotify)
-            {
-                _statusLabel.Text = $"Fetching {spotifyType.ToString().ToLowerInvariant()} from Spotify...";
-                using var fetcher = new SpotifyEmbedFetcher();
-                var playlist = await fetcher.FetchAsync(
-                    spotifyType,
-                    spotifyId,
-                    _conversionCts.Token
-                );
-                tracks = playlist.Tracks;
-                playlistName = SanitizeFolderName(playlist.Name);
-            }
-            else
-            {
-                using var reader = new StreamReader(input);
-                var csvConfig = new CsvConfiguration(CultureInfo.InvariantCulture)
-                {
-                    MissingFieldFound = null,
-                    HeaderValidated = null,
-                };
-                using var csv = new CsvReader(reader, csvConfig);
-                tracks = csv.GetRecords<Track>().ToList();
-                playlistName = Path.GetFileNameWithoutExtension(input);
-            }
+            var (tracks, playlistName) = isSpotify
+                ? await LoadTracksFromSpotifyAsync(spotifyType, spotifyId, _conversionCts.Token)
+                : LoadTracksFromCsv(input);
 
             if (tracks.Count == 0)
             {
@@ -271,8 +221,8 @@ public class MainWindow : Window
             }
 
             var playlistDir = Path.Combine(outPath, playlistName);
-
             Directory.CreateDirectory(playlistDir);
+
             using var logger = new ConversionLogger(
                 playlistDir,
                 (msg, isError) => _logWindow.Log(msg, isError)
@@ -290,29 +240,7 @@ public class MainWindow : Window
 
             var notFound = await downloader.DownloadPlaylistAsync(tracks, _conversionCts.Token);
 
-            var downloaded = tracks.Count - notFound.Count;
-            var failed = notFound.Count;
-
-            Application.Invoke(() =>
-            {
-                _statusLabel.Text = $"✅ Completed. {downloaded} downloaded, {failed} failed.";
-                _progressBar.Fraction = 1.0f;
-                _convertBtn.Enabled = true;
-
-                var summary =
-                    $"Total tracks: {tracks.Count}\nDownloaded:   {downloaded}\nFailed:       {failed}";
-                if (notFound.Count > 0)
-                {
-                    summary +=
-                        "\n\nFailed tracks:\n"
-                        + string.Join(
-                            "\n",
-                            notFound.Select(t => $"  - {t.TrackName} — {t.ArtistNames}")
-                        );
-                }
-
-                ShowDialog("Conversion Complete", summary, "Dialog");
-            });
+            Application.Invoke(() => ShowConversionComplete(tracks.Count, notFound));
         }
         catch (OperationCanceledException)
         {
@@ -335,6 +263,100 @@ public class MainWindow : Window
             _conversionCts?.Dispose();
             _conversionCts = null;
         }
+    }
+
+    private bool ValidateConversionInputs(
+        string input,
+        string outPath,
+        out SpotifyEntityType spotifyType,
+        out string spotifyId,
+        out bool isSpotify
+    )
+    {
+        spotifyType = SpotifyEntityType.Playlist;
+        spotifyId = string.Empty;
+        isSpotify = false;
+
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            ShowDialog(
+                "Error",
+                "Provide a CSV file path or Spotify playlist URL",
+                "Error",
+                centerText: true
+            );
+            return false;
+        }
+        if (string.IsNullOrWhiteSpace(outPath))
+        {
+            ShowDialog("Error", "Invalid output directory", "Error", centerText: true);
+            return false;
+        }
+
+        isSpotify = SpotifyUrl.TryParse(input, out spotifyType, out spotifyId);
+        if (!isSpotify && !File.Exists(input))
+        {
+            ShowDialog(
+                "Error",
+                "Input is neither an existing CSV file nor a Spotify playlist/album URL",
+                "Error",
+                centerText: true
+            );
+            return false;
+        }
+        return true;
+    }
+
+    private async Task<(List<Track> Tracks, string PlaylistName)> LoadTracksFromSpotifyAsync(
+        SpotifyEntityType type,
+        string id,
+        CancellationToken ct
+    )
+    {
+        _statusLabel.Text = $"Fetching {type.ToString().ToLowerInvariant()} from Spotify...";
+        using var fetcher = new SpotifyEmbedFetcher();
+        var playlist = await fetcher.FetchAsync(type, id, ct);
+        return (playlist.Tracks, SanitizeFolderName(playlist.Name));
+    }
+
+    private static (List<Track> Tracks, string PlaylistName) LoadTracksFromCsv(string path)
+    {
+        using var reader = new StreamReader(path);
+        var csvConfig = new CsvConfiguration(CultureInfo.InvariantCulture)
+        {
+            MissingFieldFound = null,
+            HeaderValidated = null,
+        };
+        using var csv = new CsvReader(reader, csvConfig);
+        var tracks = csv.GetRecords<Track>().ToList();
+        return (tracks, Path.GetFileNameWithoutExtension(path));
+    }
+
+    private void ShowConversionComplete(int totalTracks, List<Track> notFound)
+    {
+        var downloaded = totalTracks - notFound.Count;
+        var failed = notFound.Count;
+
+        _statusLabel.Text = $"✅ Completed. {downloaded} downloaded, {failed} failed.";
+        _progressBar.Fraction = 1.0f;
+        _convertBtn.Enabled = true;
+
+        ShowDialog("Conversion Complete", BuildCompletionSummary(totalTracks, notFound), "Dialog");
+    }
+
+    private static string BuildCompletionSummary(int totalTracks, List<Track> notFound)
+    {
+        var downloaded = totalTracks - notFound.Count;
+        var failed = notFound.Count;
+        var summary =
+            $"Total tracks: {totalTracks}\nDownloaded:   {downloaded}\nFailed:       {failed}";
+        if (notFound.Count > 0)
+        {
+            summary +=
+                "\n\nFailed tracks:\n"
+                + string.Join("\n", notFound.Select(t => $"  - {t.TrackName} — {t.ArtistNames}"));
+        }
+        return summary;
     }
 
     private static string SanitizeFolderName(string name)

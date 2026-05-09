@@ -280,6 +280,35 @@ public partial class Downloader(
         return File.Exists(mp3Path) ? mp3Path : null;
     }
 
+    private List<string> BuildDownloadArgs(
+        string outputTemplatePath,
+        string downloadSpec,
+        SafeModeTier? safeModeTier
+    )
+    {
+        var args = new List<string>
+        {
+            "--ignore-config",
+            "--format", "bestaudio",
+            "--output", outputTemplatePath,
+            "--no-playlist",
+            "--embed-thumbnail",
+            "--embed-metadata",
+            "--extract-audio",
+            "--audio-format", "mp3",
+            "--audio-quality", "0",
+        };
+
+        if (config.ExcludeInstrumentals)
+            args.AddRange(["--match-filter", "title!*=instrumental"]);
+
+        if (safeModeTier.HasValue)
+            args.AddRange(GetSafeModeArgs(safeModeTier.Value));
+
+        args.Add(downloadSpec);
+        return args;
+    }
+
     private async Task<string?> DownloadTrackAsync(
         VariantInfo variantInfo,
         string downloadSpec,
@@ -287,35 +316,8 @@ public partial class Downloader(
         CancellationToken ct
     )
     {
-        var tmpl = variantInfo.BaseName + ".%(ext)s";
-        var args = new List<string>
-        {
-            "--ignore-config",
-            "--format",
-            "bestaudio",
-            "--output",
-            Path.Combine(outputDir, tmpl),
-            "--no-playlist",
-            "--embed-thumbnail",
-            "--embed-metadata",
-            "--extract-audio",
-            "--audio-format",
-            "mp3",
-            "--audio-quality",
-            "0",
-        };
-
-        if (config.ExcludeInstrumentals)
-        {
-            args.AddRange(["--match-filter", "title!*=instrumental"]);
-        }
-
-        if (safeModeTier.HasValue)
-        {
-            args.AddRange(GetSafeModeArgs(safeModeTier.Value));
-        }
-
-        args.Add(downloadSpec);
+        var outputTemplate = Path.Combine(outputDir, variantInfo.BaseName + ".%(ext)s");
+        var args = BuildDownloadArgs(outputTemplate, downloadSpec, safeModeTier);
 
         logger.Log(
             $"yt-dlp {string.Join(" ", args.Select(a => a.Contains(' ') ? $"\"{a}\"" : a))}",
@@ -329,13 +331,8 @@ public partial class Downloader(
         {
             var downloadedFile = FindExistingFile(variantInfo);
             if (downloadedFile != null)
-            {
                 return downloadedFile;
-            }
-            else
-            {
-                logger.Log($"File not found after download: {variantInfo.BaseName}", true);
-            }
+            logger.Log($"File not found after download: {variantInfo.BaseName}", true);
         }
         else
         {
@@ -362,6 +359,24 @@ public partial class Downloader(
         }
     }
 
+    private record VideoInfo(string Title, string Uploader, double Duration);
+
+    private static VideoInfo ReadVideoInfo(JsonElement element)
+    {
+        var title = element.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "";
+        var uploader = element.TryGetProperty("uploader", out var u)
+            ? (u.GetString() ?? "").ToLower()
+            : "";
+        var duration = element.TryGetProperty("duration", out var d) ? d.GetDouble() : 0;
+        return new VideoInfo(title, uploader, duration);
+    }
+
+    private bool IsDurationInRange(double duration) =>
+        duration >= config.DurationMin && duration <= config.DurationMax;
+
+    private static bool MatchesArtist(string uploader, string safeArtist) =>
+        string.IsNullOrEmpty(safeArtist) || uploader.Contains(safeArtist.ToLower());
+
     private async Task<string> PerformDeepSearchAsync(
         string query,
         string safeTitle,
@@ -371,55 +386,87 @@ public partial class Downloader(
         CancellationToken ct
     )
     {
-        var (code1, stdout1, _) = await RunCommandAsync(
+        var firstMatch = await TryFirstResultMatchAsync(query, safeTitle, safeArtist, spotifySec, ct)
+            .ConfigureAwait(false);
+        if (firstMatch != null)
+            return firstMatch;
+
+        var bestOfTop = await TryBestOfTopResultsAsync(query, safeTitle, safeArtist, variant, spotifySec, ct)
+            .ConfigureAwait(false);
+        if (bestOfTop != null)
+            return bestOfTop;
+
+        return $"ytsearch1:{query}";
+    }
+
+    private async Task<string?> TryFirstResultMatchAsync(
+        string query,
+        string safeTitle,
+        string safeArtist,
+        int? spotifySec,
+        CancellationToken ct
+    )
+    {
+        var (code, stdout, _) = await RunCommandAsync(
                 "yt-dlp",
                 new[] { "--dump-single-json", "--no-playlist", $"ytsearch1:{query}" },
                 ct
             )
             .ConfigureAwait(false);
-        if (code1 == 0)
+        if (code != 0)
+            return null;
+
+        try
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(stdout1);
-                var root = doc.RootElement;
-                if (root.TryGetProperty("entries", out var entries) && entries.GetArrayLength() > 0)
-                {
-                    var top = entries[0];
-                    var vidTitle = top.TryGetProperty("title", out var t)
-                        ? t.GetString() ?? ""
-                        : "";
-                    var uploader = top.TryGetProperty("uploader", out var u)
-                        ? (u.GetString() ?? "").ToLower()
-                        : "";
-                    var duration = top.TryGetProperty("duration", out var d) ? d.GetDouble() : 0;
+            using var doc = JsonDocument.Parse(stdout);
+            if (
+                !doc.RootElement.TryGetProperty("entries", out var entries)
+                || entries.GetArrayLength() == 0
+            )
+                return null;
 
-                    bool passes =
-                        safeTitle.ToLower().Contains(vidTitle.ToLower())
-                        || vidTitle.ToLower().Contains(safeTitle.ToLower());
-                    if (!string.IsNullOrEmpty(safeArtist))
-                        passes &= uploader.Contains(safeArtist.ToLower());
-                    if (spotifySec.HasValue)
-                        passes &= Math.Abs(duration - spotifySec.Value) <= 10;
-                    passes &= duration >= config.DurationMin && duration <= config.DurationMax;
+            var top = entries[0];
+            var info = ReadVideoInfo(top);
+            var titleLow = info.Title.ToLower();
+            var safeTitleLow = safeTitle.ToLower();
 
-                    if (passes && top.TryGetProperty("webpage_url", out var url))
-                    {
-                        return url.GetString() ?? $"ytsearch1:{query}";
-                    }
-                }
-            }
-            catch (JsonException ex)
+            bool titleMatches = safeTitleLow.Contains(titleLow) || titleLow.Contains(safeTitleLow);
+            bool spotifyDurationMatches =
+                !spotifySec.HasValue || Math.Abs(info.Duration - spotifySec.Value) <= 10;
+
+            if (
+                titleMatches
+                && MatchesArtist(info.Uploader, safeArtist)
+                && spotifyDurationMatches
+                && IsDurationInRange(info.Duration)
+                && top.TryGetProperty("webpage_url", out var url)
+            )
             {
-                logger.Log($"JSON parsing error in deep search (step 1): {ex.Message}", true);
-            }
-            catch (Exception ex)
-            {
-                logger.Log($"Unexpected error in deep search (step 1): {ex.Message}", true);
+                return url.GetString() ?? $"ytsearch1:{query}";
             }
         }
+        catch (JsonException ex)
+        {
+            logger.Log($"JSON parsing error in deep search (step 1): {ex.Message}", true);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Unexpected error in deep search (step 1): {ex.Message}", true);
+        }
 
-        var (code3, stdout3, _) = await RunCommandAsync(
+        return null;
+    }
+
+    private async Task<string?> TryBestOfTopResultsAsync(
+        string query,
+        string safeTitle,
+        string safeArtist,
+        string variant,
+        int? spotifySec,
+        CancellationToken ct
+    )
+    {
+        var (code, stdout, _) = await RunCommandAsync(
                 "yt-dlp",
                 new[]
                 {
@@ -431,92 +478,93 @@ public partial class Downloader(
                 ct
             )
             .ConfigureAwait(false);
-        if (code3 == 0)
+        if (code != 0)
+            return null;
+
+        try
         {
-            try
-            {
-                using var doc = JsonDocument.Parse(stdout3);
-                var root = doc.RootElement;
-                if (root.TryGetProperty("entries", out var entries))
-                {
-                    var scored = new List<(int score, string url)>();
-                    foreach (var entry in entries.EnumerateArray().Take(3))
-                    {
-                        if (entry.TryGetProperty("id", out var idProp))
-                        {
-                            var vid = idProp.GetString();
-                            var url = $"https://www.youtube.com/watch?v={vid}";
-                            var (codeI, stdoutI, _) = await RunCommandAsync(
-                                    "yt-dlp",
-                                    new[] { "--dump-single-json", "--no-playlist", url },
-                                    ct
-                                )
-                                .ConfigureAwait(false);
-                            if (codeI == 0)
-                            {
-                                try
-                                {
-                                    using var iDoc = JsonDocument.Parse(stdoutI);
-                                    var info = iDoc.RootElement;
-                                    var rawTitle = info.TryGetProperty("title", out var t)
-                                        ? t.GetString() ?? ""
-                                        : "";
-                                    var lowTitle = rawTitle.ToLower();
-                                    var dur2 = info.TryGetProperty("duration", out var d)
-                                        ? d.GetDouble()
-                                        : 0;
-                                    var up2 = info.TryGetProperty("uploader", out var u)
-                                        ? (u.GetString() ?? "").ToLower()
-                                        : "";
+            using var doc = JsonDocument.Parse(stdout);
+            if (!doc.RootElement.TryGetProperty("entries", out var entries))
+                return null;
 
-                                    if (dur2 < config.DurationMin || dur2 > config.DurationMax)
-                                        continue;
-                                    if (lowTitle.Contains("#shorts"))
-                                        continue;
-                                    if (
-                                        !string.IsNullOrEmpty(safeArtist)
-                                        && !up2.Contains(safeArtist.ToLower())
-                                    )
-                                        continue;
-                                    if (
-                                        !string.IsNullOrEmpty(variant)
-                                        && !lowTitle.Contains(variant.ToLower())
-                                    )
-                                        continue;
-
-                                    int score = lowTitle.StartsWith(safeTitle.ToLower()) ? 100 : 80;
-                                    if (spotifySec.HasValue)
-                                        score -= (int)Math.Abs(dur2 - spotifySec.Value);
-                                    scored.Add((score, url));
-                                }
-                                catch (JsonException ex)
-                                {
-                                    logger.Log(
-                                        $"JSON parsing error for video info: {ex.Message}",
-                                        true
-                                    );
-                                }
-                            }
-                        }
-                    }
-
-                    if (scored.Any())
-                    {
-                        return scored.OrderByDescending(x => x.score).First().url;
-                    }
-                }
-            }
-            catch (JsonException ex)
+            var scored = new List<(int score, string url)>();
+            foreach (var entry in entries.EnumerateArray().Take(3))
             {
-                logger.Log($"JSON parsing error in deep search (step 3): {ex.Message}", true);
+                var candidate = await ScoreCandidateAsync(
+                        entry,
+                        safeTitle,
+                        safeArtist,
+                        variant,
+                        spotifySec,
+                        ct
+                    )
+                    .ConfigureAwait(false);
+                if (candidate.HasValue)
+                    scored.Add(candidate.Value);
             }
-            catch (Exception ex)
-            {
-                logger.Log($"Unexpected error in deep search (step 3): {ex.Message}", true);
-            }
+
+            if (scored.Count > 0)
+                return scored.OrderByDescending(x => x.score).First().url;
+        }
+        catch (JsonException ex)
+        {
+            logger.Log($"JSON parsing error in deep search (step 3): {ex.Message}", true);
+        }
+        catch (Exception ex)
+        {
+            logger.Log($"Unexpected error in deep search (step 3): {ex.Message}", true);
         }
 
-        return $"ytsearch1:{query}";
+        return null;
+    }
+
+    private async Task<(int score, string url)?> ScoreCandidateAsync(
+        JsonElement entry,
+        string safeTitle,
+        string safeArtist,
+        string variant,
+        int? spotifySec,
+        CancellationToken ct
+    )
+    {
+        if (!entry.TryGetProperty("id", out var idProp))
+            return null;
+
+        var url = $"https://www.youtube.com/watch?v={idProp.GetString()}";
+        var (code, stdout, _) = await RunCommandAsync(
+                "yt-dlp",
+                new[] { "--dump-single-json", "--no-playlist", url },
+                ct
+            )
+            .ConfigureAwait(false);
+        if (code != 0)
+            return null;
+
+        try
+        {
+            using var doc = JsonDocument.Parse(stdout);
+            var info = ReadVideoInfo(doc.RootElement);
+            var titleLow = info.Title.ToLower();
+
+            if (!IsDurationInRange(info.Duration))
+                return null;
+            if (titleLow.Contains("#shorts"))
+                return null;
+            if (!MatchesArtist(info.Uploader, safeArtist))
+                return null;
+            if (!string.IsNullOrEmpty(variant) && !titleLow.Contains(variant.ToLower()))
+                return null;
+
+            int score = titleLow.StartsWith(safeTitle.ToLower()) ? 100 : 80;
+            if (spotifySec.HasValue)
+                score -= (int)Math.Abs(info.Duration - spotifySec.Value);
+            return (score, url);
+        }
+        catch (JsonException ex)
+        {
+            logger.Log($"JSON parsing error for video info: {ex.Message}", true);
+            return null;
+        }
     }
 
     private async Task<(int exitCode, string stdout, string stderr)> RunCommandAsync(
