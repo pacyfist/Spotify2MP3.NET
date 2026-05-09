@@ -12,7 +12,7 @@ This project targets `Terminal.Gui` **2.1.0** (`Spotify2MP3.NET/Spotify2MP3.NET.
 The codebase uses the **instance-based v2 API**. Don't reach for v1-style static helpers (`Application.Init/Shutdown`, `Colors.ColorSchemes`, `ColorScheme`) — they don't exist here.
 
 - Bootstrap pattern (see `Spotify2MP3.NET/Program.cs`): `using IApplication app = Application.Create().Init(); app.Run(mainWindow);` — `Dispose()` runs automatically.
-- Schemes are registered once in `Program.RegisterSchemes()` under three names: **`"Base"`** (main windows), **`"Dialog"`** (modal dialogs), **`"Error"`** (error UIs). Views select one via `SchemeName = "Dialog";` — never construct ad-hoc `Scheme` instances inside views.
+- **Theming uses the framework's built-in schemes** (`"Base"`, `"Dialog"`, `"Error"`, `"Menu"`, `"Toplevel"`). We do NOT register custom Schemes — views just pick one via `SchemeName = "Dialog";`. The framework devs have tuned them for legibility across terminals; rolling our own (the original v1-port did this with `Color.Gray on Color.Black` and friends) produced a muddy low-contrast result.
 - File style: `_camelCase` `private readonly` fields, view tree built imperatively in the constructor. `MainWindow` uses a running `y` counter for vertical layout — keep it when extending that file. `SettingsDialog` uses chained `Pos.Bottom(prev)` — keep that style there.
 - Quit key is the v2 default (**Esc**). Don't add a custom `QuitKey` setter — the v2 API for that is `Application.SetDefaultKeyBinding(Command.Quit, ...)` and we don't currently customize it.
 - The default constructor on `Window`/`Dialog` takes no args; do **not** write `: base()`.
@@ -137,24 +137,23 @@ protected void RaiseSomething(SomeEventArgs args)
 
 ## 9. Theming
 
-The codebase has three registered schemes — `"Base"`, `"Dialog"`, `"Error"` — built in `Program.RegisterSchemes()`. `Scheme` is **immutable**, so use the object initializer with the visual-role properties:
+**Use the framework's built-in schemes.** Do not call `SchemeManager.AddScheme(...)` to override them — the v2 defaults are tuned for legibility across terminals and proper contrast on focus / hot-keys, which is exactly what hand-rolled 16-color ANSI palettes (e.g. `Gray on Black`) get wrong.
 
-```csharp
-new Scheme
-{
-    Normal     = new Terminal.Gui.Drawing.Attribute(Color.Gray, Color.Black),
-    Focus      = new Terminal.Gui.Drawing.Attribute(Color.White, Color.DarkGray),
-    HotNormal  = new Terminal.Gui.Drawing.Attribute(Color.BrightCyan, Color.Black),
-    HotFocus   = new Terminal.Gui.Drawing.Attribute(Color.BrightCyan, Color.DarkGray),
-    Disabled   = new Terminal.Gui.Drawing.Attribute(Color.DarkGray, Color.Black),
-}
-```
+Available built-in scheme names (string keys, also exposed as the `Schemes` enum):
 
-Other available roles (use only if needed): `Active`, `Highlight`, `Editable`, `ReadOnly`, `HotActive`, `Code`. Unset roles are derived from `Normal`.
+| Name | Use for |
+|---|---|
+| `"Base"` | Top-level windows / main content |
+| `"Dialog"` | Modal dialogs and their contents |
+| `"Error"` | Error dialogs / failure-state UI |
+| `"Menu"` | Menu bars and dropdowns |
+| `"Toplevel"` | The application root |
 
 Views select a scheme by name: `SchemeName = "Dialog";` — string-based, inherits to subviews unless they override.
 
-If a new role is genuinely needed (e.g. `"Success"`), add it to `Program.RegisterSchemes()` and reference by name. Don't add `ConfigurationManager` — see §10.
+Visual roles available on a `Scheme` (only relevant if you ever do build a custom one): `Normal`, `Focus`, `Active`, `Highlight`, `Editable`, `ReadOnly`, `Disabled`, `HotNormal`, `HotFocus`, `HotActive`, `Code`. Unset roles derive from `Normal`. `Scheme` is **immutable** — to "modify," construct a new one.
+
+**When a custom scheme is justified**: a UI state the built-ins can't express (e.g. a "Success" panel that needs a green accent). In that case register it once in `Program.cs`, give it a clear name, and reference by `SchemeName`. Don't reach for `ConfigurationManager` — see §10.
 
 ## 10. Configuration (do NOT use `ConfigurationManager`)
 
