@@ -67,7 +67,7 @@ public class MainWindow : Window
         );
         _outputPathField = new TextField
         {
-            Text = "",
+            Text = defaultFolder ?? "",
             X = 1,
             Y = y++,
             Width = Dim.Fill() - 15,

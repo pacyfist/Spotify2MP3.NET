@@ -10,9 +10,21 @@ internal static class Program
     {
         string? folder = ParseArg(args, "--folder");
         string? source = ParseArg(args, "--source");
+        bool headless = HasFlag(args, "--headless");
 
-        if (folder is not null && source is not null)
+        if (headless)
         {
+            if (source is null)
+            {
+                Console.Error.WriteLine("error: --headless requires --source");
+                return HeadlessRunner.ExitFatal;
+            }
+            if (folder is null)
+            {
+                Console.Error.WriteLine("error: --headless requires --folder");
+                return HeadlessRunner.ExitFatal;
+            }
+
             using var cts = new CancellationTokenSource();
             ConsoleCancelEventHandler handler = (_, e) =>
             {
@@ -46,5 +58,15 @@ internal static class Program
                 return args[i + 1];
         }
         return null;
+    }
+
+    private static bool HasFlag(string[] args, string flag)
+    {
+        foreach (var a in args)
+        {
+            if (a == flag)
+                return true;
+        }
+        return false;
     }
 }
