@@ -12,14 +12,14 @@ public class ConfigTests
         var config = new Config
         {
             DurationMin = 45,
-            ExcludeInstrumentals = true
+            Exclude = ["instrumental", "karaoke"]
         };
         config.Save();
 
         var loaded = Config.Load();
 
         Assert.Equal(45, loaded.DurationMin);
-        Assert.True(loaded.ExcludeInstrumentals);
+        Assert.Equal(new[] { "instrumental", "karaoke" }, loaded.Exclude);
         Assert.True(loaded.GenerateM3u);
     }
 }

@@ -22,12 +22,17 @@ internal static class Program
                 .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
                 .ToList();
         }
+        if (ParseArg(args, "--exclude") is { } exclude)
+        {
+            config.Exclude = exclude
+                .Split(',', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries)
+                .ToList();
+        }
 
         int? overrideError = null;
         overrideError ??= TryApplyInt(args, "--duration-min", v => config.DurationMin = v);
         overrideError ??= TryApplyInt(args, "--duration-max", v => config.DurationMax = v);
         overrideError ??= TryApplyBool(args, "--m3u", v => config.GenerateM3u = v);
-        overrideError ??= TryApplyBool(args, "--exclude-instrumentals", v => config.ExcludeInstrumentals = v);
         overrideError ??= TryApplyBool(args, "--safe-mode", v => config.SafeMode = v);
         overrideError ??= TryApplyBool(args, "--cover-art", v => config.UseSpotifyCoverArt = v);
         overrideError ??= TryApplyBool(args, "--deep-search", v => deepSearch = v);

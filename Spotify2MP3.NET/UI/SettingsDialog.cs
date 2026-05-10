@@ -27,11 +27,25 @@ public class SettingsDialog : Dialog
             Width = Dim.Fill(1),
         };
 
+        var excludeLabel = new Label
+        {
+            Text = "Exclude (comma separated): ",
+            X = 1,
+            Y = Pos.Bottom(variantsLabel),
+        };
+        var excludeField = new TextField
+        {
+            Text = string.Join(",", config.Exclude),
+            X = Pos.Right(variantsLabel) + 1,
+            Y = Pos.Top(excludeLabel),
+            Width = Dim.Fill(1),
+        };
+
         var minLabel = new Label
         {
             Text = "Min Duration (s):",
             X = 1,
-            Y = Pos.Bottom(variantsLabel),
+            Y = Pos.Bottom(excludeLabel),
         };
         var minField = new TextField
         {
@@ -62,18 +76,11 @@ public class SettingsDialog : Dialog
             Y = Pos.Bottom(maxLabel) + 1,
             Value = config.GenerateM3u ? CheckState.Checked : CheckState.UnChecked,
         };
-        var instrCheck = new CheckBox
-        {
-            Text = "Exclude _Instrumentals",
-            X = 1,
-            Y = Pos.Bottom(m3uCheck),
-            Value = config.ExcludeInstrumentals ? CheckState.Checked : CheckState.UnChecked,
-        };
         var safeCheck = new CheckBox
         {
             Text = "Sa_fe Mode (pace downloads)",
             X = 1,
-            Y = Pos.Bottom(instrCheck),
+            Y = Pos.Bottom(m3uCheck),
             Value = config.SafeMode ? CheckState.Checked : CheckState.UnChecked,
         };
         var coverArtCheck = new CheckBox
@@ -108,12 +115,18 @@ public class SettingsDialog : Dialog
                     .Select(x => x.Trim())
                     .Where(x => !string.IsNullOrEmpty(x)),
             ];
+            config.Exclude =
+            [
+                .. (excludeField.Text?.ToString() ?? "")
+                    .Split(',')
+                    .Select(x => x.Trim())
+                    .Where(x => !string.IsNullOrEmpty(x)),
+            ];
             if (int.TryParse(minField.Text.ToString(), out int min))
                 config.DurationMin = min;
             if (int.TryParse(maxField.Text.ToString(), out int max))
                 config.DurationMax = max;
             config.GenerateM3u = m3uCheck.Value == CheckState.Checked;
-            config.ExcludeInstrumentals = instrCheck.Value == CheckState.Checked;
             config.SafeMode = safeCheck.Value == CheckState.Checked;
             config.UseSpotifyCoverArt = coverArtCheck.Value == CheckState.Checked;
             App!.RequestStop();
@@ -128,12 +141,13 @@ public class SettingsDialog : Dialog
         Add(
             variantsLabel,
             variantsField,
+            excludeLabel,
+            excludeField,
             minLabel,
             minField,
             maxLabel,
             maxField,
             m3uCheck,
-            instrCheck,
             safeCheck,
             coverArtCheck,
             saveBtn,

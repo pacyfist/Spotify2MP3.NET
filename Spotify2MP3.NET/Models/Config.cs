@@ -20,8 +20,8 @@ public class Config
     [JsonPropertyName("generate_m3u")]
     public bool GenerateM3u { get; set; } = true;
 
-    [JsonPropertyName("exclude_instrumentals")]
-    public bool ExcludeInstrumentals { get; set; } = false;
+    [JsonPropertyName("exclude")]
+    public List<string> Exclude { get; set; } = new List<string> { "instrumental" };
 
     [JsonPropertyName("safe_mode")]
     public bool SafeMode { get; set; } = false;

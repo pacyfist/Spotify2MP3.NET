@@ -50,10 +50,10 @@ cd Spotify2MP3.NET/bin/Debug/net10.0/
 | `--headless`                          | Run without the TUI: logs to stdout, exit code reflects success. Requires both `--source` and `--folder`.                                  |
 | `--deep-search <true\|false>`         | Toggle Deep Search for the session. Default `true`.                                                                                        |
 | `--variants <csv>`                    | Comma-separated search variants (e.g. `remix,acoustic`). Empty string clears the list. Overrides the saved config for the session.         |
+| `--exclude <csv>`                     | Comma-separated words to exclude from YouTube titles (e.g. `instrumental,karaoke`). Empty string disables filtering. Default: `instrumental`. |
 | `--duration-min <seconds>`            | Reject videos shorter than this many seconds. Overrides the saved config for the session.                                                  |
 | `--duration-max <seconds>`            | Reject videos longer than this many seconds. Overrides the saved config for the session.                                                   |
 | `--m3u <true\|false>`                 | Generate `playlist.m3u` alongside the MP3s. Overrides the saved config for the session.                                                    |
-| `--exclude-instrumentals <true\|false>` | Skip results whose YouTube title contains "instrumental". Overrides the saved config for the session.                                    |
 | `--safe-mode <true\|false>`           | Pace downloads to avoid YouTube throttling (see Safe Mode below). Overrides the saved config for the session.                              |
 | `--cover-art <true\|false>`           | Embed Spotify album art instead of the YouTube thumbnail. Overrides the saved config for the session.                                      |
 
@@ -126,17 +126,17 @@ Turn Deep Search off for fastest runs; leave it on for the best chance of gettin
 
 Open the **Settings** dialog (`Alt+S` or click the button) to configure:
 
-| Setting               | Default   | Description                                               |
-| --------------------- | --------- | --------------------------------------------------------- |
-| Variants              | _(empty)_ | Comma-separated search variants (e.g. `remix,acoustic`)   |
-| Min Duration          | 30s       | Reject videos shorter than this                           |
-| Max Duration          | 600s      | Reject videos longer than this                            |
-| Generate M3U          | On        | Write a `playlist.m3u` file alongside the MP3s            |
-| Exclude Instrumentals | Off       | Skip results whose YouTube title contains "instrumental"  |
-| Safe Mode             | Off       | Pace downloads to avoid YouTube throttling (see below)    |
-| Use Spotify cover Art | Off       | Embed real album cover from Spotify instead of YT thumb   |
+| Setting               | Default        | Description                                                                  |
+| --------------------- | -------------- | ---------------------------------------------------------------------------- |
+| Variants              | _(empty)_      | Comma-separated search variants (e.g. `remix,acoustic`)                      |
+| Exclude               | `instrumental` | Comma-separated words to reject in YouTube titles (e.g. `instrumental,karaoke`) |
+| Min Duration          | 30s            | Reject videos shorter than this                                              |
+| Max Duration          | 600s           | Reject videos longer than this                                               |
+| Generate M3U          | On             | Write a `playlist.m3u` file alongside the MP3s                               |
+| Safe Mode             | Off            | Pace downloads to avoid YouTube throttling (see below)                       |
+| Use Spotify cover Art | Off            | Embed real album cover from Spotify instead of YT thumb                      |
 
-Settings persist in a `config.json` file next to the executable.
+Settings persist in a `config.json` file next to the executable (`AppContext.BaseDirectory`, e.g. `/path/to/app/config.json`). The file is written only when you click **Save** in the Settings dialog. On launch the app reads it if present and silently falls back to defaults if missing or malformed. CLI overrides (`--m3u`, `--variants`, etc.) mutate the in-memory config for the session and are **not** written back.
 
 ### Variants
 
@@ -195,7 +195,7 @@ Filenames are sanitized by stripping non-alphanumeric characters from the artist
 - `Alt+D` — toggle **Deep Search**
 - `Alt+S` — open **Settings**
 - `Alt+C` — **Convert Playlist**
-- In the Settings dialog: `Alt+M` (M3U), `Alt+I` (instrumentals), `Alt+F` (safe mode), `Alt+A` (cover art), `Alt+S` save, `Alt+C` cancel
+- In the Settings dialog: `Alt+M` (M3U), `Alt+F` (safe mode), `Alt+A` (cover art), `Alt+S` save, `Alt+C` cancel
 - `Esc` — quit the application
 
 ## Running Tests

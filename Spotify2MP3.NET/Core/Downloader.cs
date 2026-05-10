@@ -333,8 +333,11 @@ public partial class Downloader(
             "--audio-quality", "0",
         };
 
-        if (config.ExcludeInstrumentals)
-            args.AddRange(["--match-filter", "title!*=instrumental"]);
+        if (config.Exclude.Count > 0)
+        {
+            var filter = string.Join(" & ", config.Exclude.Select(w => $"title!*={w}"));
+            args.AddRange(["--match-filter", filter]);
+        }
 
         if (safeModeTier.HasValue)
             args.AddRange(GetSafeModeArgs(safeModeTier.Value));
