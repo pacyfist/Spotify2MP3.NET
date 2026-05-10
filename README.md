@@ -1,6 +1,6 @@
 # Spotify2MP3.NET
 
-A terminal user interface (TUI) application that converts Spotify playlists to local MP3 files. It parses Spotify playlist CSV exports, searches for each track on YouTube, downloads the audio, and embeds metadata.
+A terminal user interface (TUI) application that converts Spotify playlists and albums to local MP3 files. It accepts a Spotify URL or a CSV export, searches for each track on YouTube, downloads the audio, and embeds metadata.
 
 This project is a complete rewrite of [Spotify2MP3](https://github.com/angall1/Spotify2MP3) built with C# / .NET 10 and [Terminal.Gui](https://github.com/gui-cs/Terminal.Gui).
 
@@ -17,8 +17,8 @@ This project is a complete rewrite of [Spotify2MP3](https://github.com/angall1/S
 ## Prerequisites
 
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
-- [yt-dlp](https://github.com/yt-dlp/yt-dlp)
-- [FFmpeg](https://ffmpeg.org/)
+- [yt-dlp](https://github.com/yt-dlp/yt-dlp) — must be on `PATH`
+- [FFmpeg](https://ffmpeg.org/) — required by yt-dlp for MP3 extraction
 
 ## Build & Run
 
@@ -41,44 +41,102 @@ cd Spotify2MP3.NET/bin/Debug/net10.0/
 ./Spotify2MP3.NET.exe
 ```
 
-You can optionally pass a default folder for file dialogs:
+### Command-line options
+
+| Flag              | Description                                                                                                                                              |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--source <path or URL>` | CSV file path, Spotify playlist URL, or Spotify album URL. Pre-fills the source field in the TUI; in headless mode, this is the input.            |
+| `--folder <path>` | Output folder. Pre-selects this folder when opening the file dialogs; in headless mode, this is the destination root.                                    |
+| `--headless`      | Run without the TUI: logs to stdout, exit code reflects success. Requires both `--source` and `--folder`.                                                |
 
 ```bash
-dotnet run --project Spotify2MP3.NET/ -- --folder /path/to/playlists
+# Open the TUI with the source field pre-filled and the dialog defaulting to /music
+dotnet run --project Spotify2MP3.NET/ -- --source ~/playlists/mix.csv --folder /music
+
+# Run headlessly — no UI, logs to stdout, exit code reflects success
+dotnet run --project Spotify2MP3.NET/ -- --headless \
+    --source https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M \
+    --folder /music
 ```
 
-## Usage
+Headless exit codes: `0` all tracks downloaded, `1` partial failure (some tracks not found), `2` fatal error (bad input, IO failure, etc.), `130` cancelled with Ctrl+C.
 
-1. **Export your Spotify playlist** as a CSV file (e.g. using [Exportify](https://exportify.net/))
-2. **Launch the app** and use the Browse buttons to select your CSV file and an output folder
-3. **Toggle Deep Search** for more accurate YouTube matching (slower but better results)
-4. **Adjust Settings** if needed (variants, duration filters, M3U generation)
-5. **Click Convert Playlist** and watch the progress in the log window
+## Quick Start
 
-Downloaded MP3s are saved to a subfolder named after the playlist, with embedded ID3 tags (title, artist, album, track number).
+1. **Provide a source** — paste a Spotify URL into the first field, or click **Browse** to pick a CSV export
+2. **Pick an output folder** with the second **Browse** button
+3. **Toggle Deep Search** for more accurate YouTube matching (slower, but better results)
+4. **Adjust Settings** if needed (variants, duration filters, M3U, cover art, safe mode)
+5. **Click Convert Playlist** and watch progress in the log window
 
-### CSV Format
+Downloaded MP3s are saved to a subfolder named after the playlist or album, with embedded ID3 tags (title, artist, album, track number).
 
-The app expects a Spotify CSV export with these columns:
+## Features
+
+### Spotify URL input
+
+Paste any of the following directly into the source field:
+
+- Playlist URL: `https://open.spotify.com/playlist/{id}`
+- Album URL: `https://open.spotify.com/album/{id}`
+- Spotify URI: `spotify:playlist:{id}` or `spotify:album:{id}`
+- Bare 22-character ID (treated as a playlist ID)
+
+The app fetches the track list from Spotify's public embed page (`open.spotify.com/embed/...`), which requires no developer account or login. Album tracks automatically pick up the album name for ID3 tagging.
+
+> **Note:** This uses an undocumented Spotify endpoint and is intended for personal use only. The embed page typically returns up to ~100 tracks, so very large playlists may be truncated — fall back to the CSV path for those.
+
+### CSV input
+
+If you'd rather use a CSV export (e.g. via [Exportify](https://exportify.net/)), the app expects these columns:
 
 ```csv
 Track Name,Artist Name(s),Album Name,Duration (ms)
 ```
 
+`Duration (ms)` is optional but improves Deep Search match quality. Header aliases like `Track name`, `Artist name`, and `Album` are also accepted.
+
+### Deep Search
+
+When the **Deep Search** checkbox is on (default), the app does more than take the first YouTube result:
+
+1. It inspects the top result and accepts it only if the title, the uploader, and the duration all match what Spotify reported (within ±10 s).
+2. If that fails, it scores the top three results — preferring titles that start with the track name, uploader names containing the artist, durations close to the Spotify length, and (when relevant) titles that include the requested variant. `#shorts` are excluded.
+3. If both passes fail, it falls back to a plain `ytsearch1:` download.
+
+Turn Deep Search off for fastest runs; leave it on for the best chance of getting the right version.
+
 ### Settings
 
-| Setting               | Default   | Description                                              |
-| --------------------- | --------- | -------------------------------------------------------- |
-| Variants              | _(empty)_ | Comma-separated search variants (e.g. `remix,acoustic`)  |
-| Min Duration          | 30s       | Minimum accepted audio duration                          |
-| Max Duration          | 600s      | Maximum accepted audio duration                          |
-| Generate M3U          | On        | Create a `playlist.m3u` file for media players           |
-| Exclude Instrumentals | Off       | Skip instrumental versions                               |
-| Safe Mode             | Off       | Pace downloads to prevent YouTube throttling (see below) |
+Open the **Settings** dialog (`Alt+S` or click the button) to configure:
+
+| Setting               | Default   | Description                                               |
+| --------------------- | --------- | --------------------------------------------------------- |
+| Variants              | _(empty)_ | Comma-separated search variants (e.g. `remix,acoustic`)   |
+| Min Duration          | 30s       | Reject videos shorter than this                           |
+| Max Duration          | 600s      | Reject videos longer than this                            |
+| Generate M3U          | On        | Write a `playlist.m3u` file alongside the MP3s            |
+| Exclude Instrumentals | Off       | Skip results whose YouTube title contains "instrumental"  |
+| Safe Mode             | Off       | Pace downloads to avoid YouTube throttling (see below)    |
+| Use Spotify cover Art | Off       | Embed real album cover from Spotify instead of YT thumb   |
+
+Settings persist in a `config.json` file next to the executable.
+
+### Variants
+
+If you set **Variants** to `remix,acoustic`, every track is downloaded twice — once searching for `Title Artist remix`, once for `Title Artist acoustic` — into separate files. Leave it empty to download each track only once. If a track title already contains `instrumental`, an `instrumental` variant is automatically prepended (regardless of the Variants setting).
+
+### Cover art
+
+By default, yt-dlp embeds the YouTube video's thumbnail. Turn on **Use Spotify cover Art** to replace it with the real album cover fetched from Spotify's public endpoint:
+
+- Album inputs use the album-level cover for every track.
+- Playlist inputs resolve each track's album cover individually via `open.spotify.com/embed/track/{id}`.
+- If Spotify doesn't return an image, the YT thumbnail embedded by yt-dlp is kept as a fallback.
 
 ### Safe Mode
 
-Safe Mode automatically adjusts download pacing based on playlist size to avoid YouTube rate-limiting:
+Safe Mode adjusts download pacing based on playlist size to avoid YouTube rate-limiting:
 
 | Tier       | Playlist Size | Delay Between Tracks | Rate Limit |
 | ---------- | ------------- | -------------------- | ---------- |
@@ -86,28 +144,43 @@ Safe Mode automatically adjusts download pacing based on playlist size to avoid 
 | Large      | 250–499       | 8s                   | 2 MB/s     |
 | Aggressive | 500+          | 15s                  | 1 MB/s     |
 
-Tracks that already exist on disk are skipped without any delay.
+Tracks that already exist on disk are skipped without delay. The selected tier is logged at the start of each run.
 
-### Download Summary
+### Resume on re-run
 
-After a conversion finishes, a summary dialog shows the total number of tracks processed, how many were downloaded successfully, and lists any tracks that failed.
+The app checks each output filename before downloading. If `Artist - Track.mp3` already exists in the output folder, it's logged as `[OK] Already exists` and skipped — making re-runs cheap and safe.
 
-### Output
+### Conversion log & progress
+
+While a run is active, the bottom panel of the main window shows a live log (errors highlighted), the status label shows the current track, and the progress bar fills as tracks complete. Every line is also written to `conversion.log` in the output folder.
+
+### Completion summary
+
+When a run finishes, a summary dialog shows the total tracks processed, how many were downloaded, and lists any that failed (track name and artist). Failed tracks are also reported in the log.
+
+### Output layout
 
 ```
 output_folder/
-  playlist_name/
+  playlist_or_album_name/
     Artist - Track.mp3
     Artist - Track 2.mp3
-    playlist.m3u
+    playlist.m3u        # if "Generate M3U" is on
     conversion.log
 ```
 
-### Keyboard Shortcuts
+Filenames are sanitized by stripping non-alphanumeric characters from the artist and title.
 
-- `Tab` / `Shift+Tab` - Navigate between controls
-- `Enter` / `Space` - Activate buttons and checkboxes
-- `Ctrl+C` - Quit the application
+### Keyboard shortcuts
+
+- `Tab` / `Shift+Tab` — navigate between controls
+- `Enter` / `Space` — activate buttons and checkboxes
+- `Alt+B` / `Alt+O` — focus the CSV/URL **Browse** / output folder **Browse** buttons
+- `Alt+D` — toggle **Deep Search**
+- `Alt+S` — open **Settings**
+- `Alt+C` — **Convert Playlist**
+- In the Settings dialog: `Alt+M` (M3U), `Alt+I` (instrumentals), `Alt+F` (safe mode), `Alt+A` (cover art), `Alt+S` save, `Alt+C` cancel
+- `Esc` — quit the application
 
 ## Running Tests
 
