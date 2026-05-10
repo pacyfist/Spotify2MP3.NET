@@ -43,20 +43,36 @@ cd Spotify2MP3.NET/bin/Debug/net10.0/
 
 ### Command-line options
 
-| Flag              | Description                                                                                                                                              |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--source <path or URL>` | CSV file path, Spotify playlist URL, or Spotify album URL. Pre-fills the source field in the TUI; in headless mode, this is the input.            |
-| `--folder <path>` | Output folder. Pre-selects this folder when opening the file dialogs; in headless mode, this is the destination root.                                    |
-| `--headless`      | Run without the TUI: logs to stdout, exit code reflects success. Requires both `--source` and `--folder`.                                                |
+| Flag                                  | Description                                                                                                                                |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `--source <path or URL>`              | CSV file path, Spotify playlist URL, or Spotify album URL. Pre-fills the source field in the TUI; in headless mode, this is the input.     |
+| `--folder <path>`                     | Output folder. Pre-fills the output field in the TUI; in headless mode, this is the destination root.                                      |
+| `--headless`                          | Run without the TUI: logs to stdout, exit code reflects success. Requires both `--source` and `--folder`.                                  |
+| `--deep-search <true\|false>`         | Toggle Deep Search for the session. Default `true`.                                                                                        |
+| `--variants <csv>`                    | Comma-separated search variants (e.g. `remix,acoustic`). Empty string clears the list. Overrides the saved config for the session.         |
+| `--duration-min <seconds>`            | Reject videos shorter than this many seconds. Overrides the saved config for the session.                                                  |
+| `--duration-max <seconds>`            | Reject videos longer than this many seconds. Overrides the saved config for the session.                                                   |
+| `--m3u <true\|false>`                 | Generate `playlist.m3u` alongside the MP3s. Overrides the saved config for the session.                                                    |
+| `--exclude-instrumentals <true\|false>` | Skip results whose YouTube title contains "instrumental". Overrides the saved config for the session.                                    |
+| `--safe-mode <true\|false>`           | Pace downloads to avoid YouTube throttling (see Safe Mode below). Overrides the saved config for the session.                              |
+| `--cover-art <true\|false>`           | Embed Spotify album art instead of the YouTube thumbnail. Overrides the saved config for the session.                                      |
+
+CLI overrides apply to the current run only; they don't write to `config.json`. Open the **Settings** dialog and click **Save** to persist them.
 
 ```bash
-# Open the TUI with the source field pre-filled and the dialog defaulting to /music
+# Open the TUI with the source field pre-filled and the output field set to /music
 dotnet run --project Spotify2MP3.NET/ -- --source ~/playlists/mix.csv --folder /music
 
 # Run headlessly — no UI, logs to stdout, exit code reflects success
 dotnet run --project Spotify2MP3.NET/ -- --headless \
     --source https://open.spotify.com/playlist/37i9dQZF1DXcBWIGoYBM5M \
     --folder /music
+
+# Headless run with extra overrides: faster (no deep search), with cover art and an M3U
+dotnet run --project Spotify2MP3.NET/ -- --headless \
+    --source ~/playlists/mix.csv --folder /music \
+    --deep-search false --cover-art true --m3u true \
+    --duration-min 60 --duration-max 480
 ```
 
 Headless exit codes: `0` all tracks downloaded, `1` partial failure (some tracks not found), `2` fatal error (bad input, IO failure, etc.), `130` cancelled with Ctrl+C.

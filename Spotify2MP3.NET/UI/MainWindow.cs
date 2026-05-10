@@ -20,11 +20,16 @@ public class MainWindow : Window
 
     private CancellationTokenSource? _conversionCts;
 
-    public MainWindow(string? defaultFolder = null, string? defaultSource = null)
+    public MainWindow(
+        Config config,
+        bool deepSearch,
+        string? defaultFolder = null,
+        string? defaultSource = null
+    )
     {
         Title = "Spotify2MP3.NET";
         SchemeName = "Base";
-        _config = Config.Load();
+        _config = config;
         _defaultFolder = defaultFolder;
 
         var y = 1;
@@ -99,7 +104,7 @@ public class MainWindow : Window
             Text = "_Deep Search (Accurate but slower)",
             X = 1,
             Y = y++,
-            Value = CheckState.Checked,
+            Value = deepSearch ? CheckState.Checked : CheckState.UnChecked,
         };
 
         var settingsBtn = new Button

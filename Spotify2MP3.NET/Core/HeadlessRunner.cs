@@ -12,6 +12,7 @@ public static class HeadlessRunner
     public static async Task<int> RunAsync(
         string source,
         string folder,
+        Config config,
         bool deepSearch,
         CancellationToken ct
     )
@@ -33,17 +34,6 @@ public static class HeadlessRunner
             Console.Error.WriteLine(
                 $"error: --source '{source}' is neither an existing CSV file nor a Spotify playlist/album URL"
             );
-            return ExitFatal;
-        }
-
-        Config config;
-        try
-        {
-            config = Config.Load();
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"error: failed to load config: {ex.Message}");
             return ExitFatal;
         }
 
