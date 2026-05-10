@@ -44,8 +44,22 @@ internal static class Program
 
         using IApplication app = Application.Create().Init();
 
-        using var mainWindow = new MainWindow(folder, source);
-        app.Run(mainWindow);
+        var mainWindow = new MainWindow(folder, source);
+        try
+        {
+            app.Run(mainWindow);
+        }
+        finally
+        {
+            try
+            {
+                mainWindow.Dispose();
+            }
+            catch (ArgumentOutOfRangeException)
+            {
+                // Terminal.Gui 2.1.0: View.Dispose can throw while iterating InternalSubViews on quit.
+            }
+        }
 
         return 0;
     }
