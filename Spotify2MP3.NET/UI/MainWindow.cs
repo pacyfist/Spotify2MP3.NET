@@ -14,6 +14,7 @@ public class MainWindow : Window
     private readonly ProgressBar _progressBar;
     private readonly Label _statusLabel;
     private readonly Button _convertBtn;
+    private readonly Button _stopBtn;
     private readonly Config _config;
     private readonly LogWindow _logWindow;
     private readonly string? _defaultFolder;
@@ -121,19 +122,34 @@ public class MainWindow : Window
         Add(_deepSearchCheck, settingsBtn);
 
         y++;
+        var btnRow = y++;
         _convertBtn = new Button
         {
             Text = "_Convert Playlist",
             IsDefault = true,
-            X = Pos.Center(),
-            Y = y++,
+            X = Pos.Align(Alignment.Center),
+            Y = btnRow,
         };
         _convertBtn.Accepting += (s, e) =>
         {
             e.Handled = true;
             StartConversion();
         };
-        Add(_convertBtn);
+        _stopBtn = new Button
+        {
+            Text = "S_top",
+            X = Pos.Align(Alignment.Center),
+            Y = btnRow,
+            Enabled = false,
+        };
+        _stopBtn.Accepting += (s, e) =>
+        {
+            e.Handled = true;
+            _stopBtn.Enabled = false;
+            _statusLabel.Text = "Cancelling...";
+            _conversionCts?.Cancel();
+        };
+        Add(_convertBtn, _stopBtn);
 
         y++;
         Add(
@@ -227,7 +243,7 @@ public class MainWindow : Window
         )
             return;
 
-        _convertBtn.Enabled = false;
+        SetConversionRunning(true);
         _conversionCts = new CancellationTokenSource();
 
         IApplication app = App!;
@@ -241,7 +257,7 @@ public class MainWindow : Window
             if (tracks.Count == 0)
             {
                 ShowDialog("Error", "No tracks found in playlist", "Error", centerText: true);
-                _convertBtn.Enabled = true;
+                SetConversionRunning(false);
                 return;
             }
 
@@ -272,7 +288,7 @@ public class MainWindow : Window
             app.Invoke(() =>
             {
                 _statusLabel.Text = "❌ Conversion cancelled.";
-                _convertBtn.Enabled = true;
+                SetConversionRunning(false);
             });
         }
         catch (Exception ex)
@@ -280,7 +296,7 @@ public class MainWindow : Window
             app.Invoke(() =>
             {
                 ShowDialog("Error", ex.Message, "Error", centerText: true);
-                _convertBtn.Enabled = true;
+                SetConversionRunning(false);
             });
         }
         finally
@@ -349,9 +365,15 @@ public class MainWindow : Window
 
         _statusLabel.Text = $"✅ Completed. {downloaded} downloaded, {failed} failed.";
         _progressBar.Fraction = 1.0f;
-        _convertBtn.Enabled = true;
+        SetConversionRunning(false);
 
         ShowDialog("Conversion Complete", BuildCompletionSummary(totalTracks, notFound), "Dialog");
+    }
+
+    private void SetConversionRunning(bool running)
+    {
+        _convertBtn.Enabled = !running;
+        _stopBtn.Enabled = running;
     }
 
     private static string BuildCompletionSummary(int totalTracks, List<Track> notFound)

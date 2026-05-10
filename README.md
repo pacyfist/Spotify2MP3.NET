@@ -195,6 +195,7 @@ Filenames are sanitized by stripping non-alphanumeric characters from the artist
 - `Alt+D` — toggle **Deep Search**
 - `Alt+S` — open **Settings**
 - `Alt+C` — **Convert Playlist**
+- `Alt+T` — **Stop** (cancel the active conversion)
 - In the Settings dialog: `Alt+M` (M3U), `Alt+F` (safe mode), `Alt+A` (cover art), `Alt+S` save, `Alt+C` cancel
 - `Esc` — quit the application
 
